@@ -1,0 +1,38 @@
+{% extends "base.html" %}{% block title %}Pay · Steam Squad{% endblock %}
+{% block content %}<section class="section narrow">
+<span class="eyebrow">PAYMENT</span><h1>PAY ₹{{ order.total_amount }}</h1>
+<div class="panel center">
+<p class="muted">Order <strong>{{ order.order_number }}</strong></p>
+{% if order.order_status == 'PAYMENT_FAILED' %}<p class="pay-warn">Your last payment could not be confirmed. Check the UTR and try again, or pay again.</p>{% endif %}
+
+<div class="mobile-only">
+  <a class="btn primary full" href="{{ apps.upi }}">PAY ₹{{ order.total_amount }} WITH UPI APP</a>
+  <div class="app-row"><a class="btn" href="{{ apps.gpay }}">GPay</a><a class="btn" href="{{ apps.phonepe }}">PhonePe</a><a class="btn" href="{{ apps.paytm }}">Paytm</a></div>
+  <p class="muted small">Amount and payee are filled in for you. Just enter your UPI PIN.</p>
+  <p class="muted small">Nothing opened? Use the QR below or pay to the UPI ID.</p>
+</div>
+
+<div class="qr-box">
+  <img src="{{ url_for('payment_qr', order_id=order.id, fmt='svg') }}" alt="UPI QR code for ₹{{ order.total_amount }}" width="240" height="240">
+  <p class="muted small">Scan with any UPI app. The amount is already included.</p>
+  <a class="btn" href="{{ url_for('payment_qr', order_id=order.id, fmt='png', download=1) }}" download>DOWNLOAD QR</a>
+</div>
+
+<p class="muted">Or pay manually to this UPI ID:</p>
+<div class="fam-id" id="famId">{{ fam_id }}</div>
+<button class="btn" type="button" id="copyFam">COPY UPI ID</button>
+<p class="pay-warn">Pay exactly <strong>₹{{ order.total_amount }}</strong>. A different amount will be rejected.</p>
+
+<hr class="dash">
+<h3>AFTER PAYING</h3>
+<p class="muted">Enter the <strong>UPI reference / transaction ID</strong> shown in your payment app (the 12-digit UTR is best). Your token is issued once the stall confirms the payment.</p>
+<form id="famPaymentForm" class="form-card">
+  <input type="hidden" name="order_id" value="{{ order.id }}">
+  <label>UPI reference / transaction ID
+    <input name="payment_reference" required pattern="[A-Za-z0-9 ]{10,40}" maxlength="40" autocomplete="off" autocapitalize="characters" placeholder="e.g. 412345678901">
+  </label>
+  <button class="btn primary full" type="submit">I'VE PAID · SUBMIT</button>
+</form>
+<div id="paymentMsg" class="muted"></div>
+</div></section>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/payment.js') }}"></script>{% endblock %}

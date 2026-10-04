@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Payments · SS Admin{% endblock %}
+{% block content %}<meta http-equiv="refresh" content="10">
+<section class="section">
+<div class="section-head"><h1>VERIFY PAYMENTS</h1><span><a href="{{ url_for('admin_dashboard') }}">← Dashboard</a> · <a href="{{ url_for('admin_orders') }}">Orders</a> · <a href="{{ url_for('admin_tokens') }}">Live Tokens</a></span></div>
+<p class="muted">Customers who have paid and sent a UTR. Compare the <b>amount</b> and <b>UTR</b> with the customer's "Payment successful" screen or your payment alert, then verify. This page refreshes every 10 seconds.</p>
+{% if not queue %}<div class="panel center"><h2>Nothing waiting 🎉</h2></div>{% endif %}
+<div class="order-grid">
+{% for o in queue %}
+<div class="order-card">
+  <div class="order-top"><b>₹{{ o.total_amount }}</b><span class="status">WAITING</span></div>
+  <p class="muted">{{ o.order_number }} · {{ o.customer_name }} · {{ o.phone }}</p>
+  <p>{% for i in o['items'] %}{{ i.quantity }} × {{ i.item_name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  <div class="fam-id">UTR {{ o.payment_id }}</div>
+  <div class="actions">
+    <form method="post" action="{{ url_for('admin_verify_payment', order_id=o.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn success" type="submit">VERIFY ₹{{ o.total_amount }}</button></form>
+    <form method="post" action="{{ url_for('admin_reject_payment', order_id=o.id) }}" onsubmit="return confirm('Reject this payment?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger" type="submit">REJECT</button></form>
+  </div>
+</div>
+{% endfor %}
+</div></section>{% endblock %}

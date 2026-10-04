@@ -1,0 +1,39 @@
+{% extends "base.html" %}{% block title %}Order {{ order.token or order.order_number }} · Steam Squad{% endblock %}
+{% block content %}{% set s = order.order_status %}
+{% set stage = {'PAID':1,'ACCEPTED':2,'PREPARING':2,'READY':3,'COMPLETED':4}.get(s, 0) %}
+<section class="section narrow"><div class="receipt">
+<span class="eyebrow">STEAM SQUAD MOMOS</span>
+{% if s == 'PAYMENT_PENDING' %}
+  <h1>CHECKING PAYMENT…</h1>
+  {% if order.payment and order.payment.status == 'SUBMITTED' %}
+    <p class="muted">The stall is confirming your payment. This usually takes a minute. Keep this page open; it updates by itself.</p>
+  {% else %}
+    <p class="muted">We haven't received your payment details yet.</p>
+    <a class="btn primary full" href="{{ url_for('payment_page', order_id=order.id) }}">GO TO PAYMENT</a>
+  {% endif %}
+{% elif s == 'PAYMENT_FAILED' %}
+  <h1>PAYMENT NOT CONFIRMED</h1>
+  <p class="muted">We couldn't match your payment. Check the UTR and try again.</p>
+  <a class="btn primary full" href="{{ url_for('payment_page', order_id=order.id) }}">TRY AGAIN</a>
+{% elif s in ['CANCELLED','REFUND_REQUESTED','REFUNDED'] %}
+  <h1>ORDER CANCELLED</h1>
+  <p class="muted">{% if s == 'REFUNDED' %}Your refund has been completed.{% else %}Your refund request has been sent to the stall. Refunds are sent back to the account you paid from.{% endif %}</p>
+{% else %}
+  <h1>ORDER CONFIRMED ✓</h1>
+  {% if s == 'READY' %}<div class="ready-banner">🔔 YOUR ORDER IS READY<strong>{{ order.token }}</strong><span>Please show this token at the counter.</span></div>
+  {% else %}<div class="token-box"><small>PICKUP TOKEN</small><strong>{{ order.token }}</strong><span>PAID</span></div>{% endif %}
+  <ol class="tracker">{% for label in ['Order Placed','Payment Confirmed','Preparing','Ready for Pickup','Completed'] %}<li class="{{ 'done' if loop.index0 <= stage else '' }}{{ ' now' if loop.index0 == stage else '' }}">{{ label }}</li>{% endfor %}</ol>
+{% endif %}
+
+<div class="status-line"><span>STATUS</span><b id="orderStatus">{{ s.replace('_',' ') }}</b></div>
+<div class="status-line"><span>ORDER</span><b>{{ order.order_number }}</b></div>
+<ul class="receipt-items">{% for i in order['items'] %}<li><span>{{ i.quantity }} × {{ i.item_name }}</span><b>₹{{ i.subtotal }}</b></li>{% endfor %}</ul>
+<div class="total"><span>Total</span><strong>₹{{ order.total_amount }}</strong></div>
+{% if s in ['PAID','ACCEPTED','PREPARING'] %}<p class="pickup">🟢 Please wait until your order is marked READY, then show token <b>{{ order.token }}</b> at the counter.</p>{% endif %}
+
+{% if s in ['PAID','ACCEPTED'] and cancel_seconds > 0 %}
+<div id="refundBox" data-seconds="{{ cancel_seconds }}"><p id="countdown" class="muted"></p><button id="cancelBtn" class="btn danger full">CANCEL ORDER & REQUEST REFUND</button></div>
+{% elif s in ['PAID','ACCEPTED','PREPARING','READY','COMPLETED'] %}<p class="muted">Cancellation window expired. No cancellation/refund is available.</p>{% endif %}
+<a class="btn full" href="{{ url_for('track') }}">Track another order</a>
+</div></section>{% endblock %}
+{% block scripts %}<script>window.ORDER_ID={{ order.id }};window.ORDER_STATUS={{ order.order_status|tojson }};</script><script src="{{ url_for('static', filename='js/order.js') }}"></script>{% endblock %}

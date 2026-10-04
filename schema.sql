@@ -1,0 +1,2 @@
+-- Steam Squad Momos schema is initialized automatically by database.py.
+-- SQLite constraints include UNIQUE(business_date, token).

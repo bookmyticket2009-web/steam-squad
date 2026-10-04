@@ -1,0 +1,1 @@
+{% extends "admin/base.html" %}{% block admin_content %}<div class="panel"><h1>SETTINGS</h1><p>Payment settings are loaded from environment variables. Never store your FAM ID or admin credentials in source code.</p><p>FAM ID configured: <b>{{ 'YES' if fam_configured else 'NO' }}</b></p><p>Payment verification: <b>Manual</b></p></div>{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block title %}Steam Squad Momos · Menu{% endblock %}
+{% block content %}
+<section class="hero"><div><span class="eyebrow">🥟 STREET FOOD · MADE TO ORDER</span><h1>Hot momos.<br><em>Big flavour.</em></h1><p>Pick your squad, add a dip, pay online and grab your token.</p><a class="btn primary" href="#menu">ORDER NOW</a></div><div class="doodle">🥟<br><span>〰 STEAM 〰</span></div></section>
+<section id="menu" class="section"><div class="section-head"><h2>THE MENU</h2><span>Every plate = 8 PCS</span></div>
+<div class="menu-grid">
+{% for category in ['Steam','Fry','Peri Peri','Tandoori','Cheese Loaded'] %}
+<article class="card"><div class="card-doodle">{% if category=='Steam' %}♨️{% elif category=='Fry' %}🔥{% elif category=='Peri Peri' %}🌶️{% elif category=='Tandoori' %}🔥{% else %}🧀{% endif %}</div><h3>{{category.upper()}} MOMOS</h3><p class="muted">8 PCS · choose your filling</p>
+{% for m in menu if m.category==category %}<div class="variant-row"><div><strong>{{m.variant.upper()}}</strong><span>₹{{m.price}}</span></div><button class="btn add" data-item-id="{{m.id}}" data-name="{{m.name}}" data-variant="{{m.variant}}" data-price="{{m.price}}">ADD</button></div>{% endfor %}
+</article>
+{% endfor %}
+</div></section>
+<section class="dip-strip"><div><h2>EXTRA DIP · ₹10 EACH</h2><p class="muted">Tap to add to your cart</p><div class="dip-row">{% for d in dips %}<button class="btn add-dip" data-dip-id="{{d.id}}" data-name="{{d.name}}" data-price="{{d.price}}">+ {{d.name}}</button>{% endfor %}</div></div><a class="btn" href="{{url_for('cart')}}">VIEW CART →</a></section>
+{% endblock %}
