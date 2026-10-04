@@ -1,13 +1,36 @@
-{% extends "base.html" %}{% block title %}Steam Squad Momos · Menu{% endblock %}
+{% extends "base.html" %}{% block title %}Steam Squad Momos · Order online{% endblock %}
+{% set info = {'Steam':'Soft, juicy & classic. The original taste.','Fry':'Crispy outside, soft inside.','Peri Peri':'Spicy. Tangy. Addictive.','Tandoori':'Smoky flavour, full of taste.','Cheese Loaded':'More cheese. More happiness.'} %}
+{% set tint = {'Steam':'#f3d9a4','Fry':'#ffa24a','Peri Peri':'#ff5a4d','Tandoori':'#ff7a3d','Cheese Loaded':'#ffd83d'} %}
 {% block content %}
-<section class="hero"><div><span class="eyebrow">🥟 STREET FOOD · MADE TO ORDER</span><h1>Hot momos.<br><em>Big flavour.</em></h1><p>Pick your squad, add a dip, pay online and grab your token.</p><a class="btn primary" href="#menu">ORDER NOW</a></div><div class="doodle">🥟<br><span>〰 STEAM 〰</span></div></section>
-<section id="menu" class="section"><div class="section-head"><h2>THE MENU</h2><span>Every plate = 8 PCS</span></div>
-<div class="menu-grid">
-{% for category in ['Steam','Fry','Peri Peri','Tandoori','Cheese Loaded'] %}
-<article class="card"><div class="card-doodle">{% if category=='Steam' %}♨️{% elif category=='Fry' %}🔥{% elif category=='Peri Peri' %}🌶️{% elif category=='Tandoori' %}🔥{% else %}🧀{% endif %}</div><h3>{{category.upper()}} MOMOS</h3><p class="muted">8 PCS · choose your filling</p>
-{% for m in menu if m.category==category %}<div class="variant-row"><div><strong>{{m.variant.upper()}}</strong><span>₹{{m.price}}</span></div><button class="btn add" data-item-id="{{m.id}}" data-name="{{m.name}}" data-variant="{{m.variant}}" data-price="{{m.price}}">ADD</button></div>{% endfor %}
-</article>
-{% endfor %}
-</div></section>
-<section class="dip-strip"><div><h2>EXTRA DIP · ₹10 EACH</h2><p class="muted">Tap to add to your cart</p><div class="dip-row">{% for d in dips %}<button class="btn add-dip" data-dip-id="{{d.id}}" data-name="{{d.name}}" data-price="{{d.price}}">+ {{d.name}}</button>{% endfor %}</div></div><a class="btn" href="{{url_for('cart')}}">VIEW CART →</a></section>
+<section class="hero"><div>
+  <p class="hand">Small bites. Big happiness.</p>
+  <h1>STEAM<br><em>SQUAD</em></h1><span class="brush">MOMOS</span>
+  <p>Good food · Good vibes · Great momos. Order here, pay by UPI, then collect at the stall when your token is called READY.</p>
+  <a class="btn primary" href="#momos">ORDER NOW</a>
+</div><div class="doodle"><svg class="mascot" viewBox="0 0 120 130" role="img" aria-label="Steam Squad momo mascot"><use href="#i-mascot"/></svg></div></section>
+<ol class="how"><li><b>1</b>Pick your momos</li><li><b>2</b>Pay with any UPI app</li><li><b>3</b>Get your token</li><li><b>4</b>Collect when it says READY</li></ol>
+<nav class="chips" aria-label="Menu sections"><a href="#momos">Momos</a><a href="#fries">Fries</a><a href="#dips">Extra dips</a></nav>
+
+<section id="momos" class="section"><div class="section-head"><h2><span class="brush">MOMOS</span></h2><span>8 pcs per plate</span></div>
+<div class="menu-grid">{% for cat, desc in info.items() %}
+<article class="dish" style="--c:{{ tint[cat] }}"><svg class="ico" aria-hidden="true"><use href="#i-momo"/></svg>
+  <div><h3>{{ cat.upper() }} MOMOS</h3><p class="muted">{{ desc }}</p></div>
+  <div class="opts">{% for m in menu if m.category == cat %}
+    <div class="opt{% if not m.available %} soldout{% endif %}" data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="{{ m.pieces }}">
+      <div class="opt-head"><svg class="v {{ m.variant|lower }}" aria-hidden="true"><use href="#i-{{ 'leaf' if m.variant == 'Veg' else 'paneer' }}"/></svg><span>{{ m.variant }}</span><b>₹{{ m.price }}</b></div>
+      <div class="ctl">{% if not m.available %}<span class="so">SOLD OUT</span>{% endif %}</div></div>{% endfor %}</div>
+</article>{% endfor %}</div></section>
+
+<section id="fries" class="section"><div class="section-head"><h2><span class="brush">FRIES</span></h2><span>Hot &amp; crispy</span></div>
+<div class="menu-grid">{% for m in menu if m.category == 'Fries' %}
+<article class="dish" style="--c:#ffd83d"><svg class="ico" aria-hidden="true"><use href="#i-fries"/></svg><div><h3>{{ m.name.upper() }}</h3></div>
+  <div class="opts"><div class="opt{% if not m.available %} soldout{% endif %}" data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="0">
+    <div class="opt-head"><span>Regular</span><b>₹{{ m.price }}</b></div><div class="ctl">{% if not m.available %}<span class="so">SOLD OUT</span>{% endif %}</div></div></div>
+</article>{% endfor %}</div></section>
+
+<section id="dips" class="section"><div class="section-head"><h2><span class="brush">EXTRA DIPS</span></h2><span>₹10 each</span></div>
+<div class="dips">{% for d in dips %}<div class="opt{% if not d.available %} soldout{% endif %}" data-dip-id="{{ d.id }}" data-name="{{ d.name }}" data-price="{{ d.price }}">
+  <div class="opt-head"><svg class="v" style="color:var(--orange)" aria-hidden="true"><use href="#i-dip"/></svg><span>{{ d.name }}</span><b>₹{{ d.price }}</b></div>
+  <div class="ctl">{% if not d.available %}<span class="so">SOLD OUT</span>{% endif %}</div></div>{% endfor %}</div>
+<p class="center muted" style="margin-top:22px">Eat. Repeat. Be happy.</p></section>
 {% endblock %}

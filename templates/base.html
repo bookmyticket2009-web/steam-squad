@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+{% include "_icons.html" %}
 <header class="topbar">
   <a class="brand" href="{{ url_for('home') }}"><span class="brand-mark">🥟</span> STEAM SQUAD</a>
   {% if not request.path.startswith('/admin') %}<nav><a href="{{ url_for('home') }}">Menu</a><a href="{{ url_for('track') }}">Track</a><a class="cart-link" href="{{ url_for('cart') }}">Cart <b id="cartCount">0</b></a></nav>{% endif %}

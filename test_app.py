@@ -67,7 +67,8 @@ class CustomerFlow(Base):
         r = self.client.get("/")
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"STEAM SQUAD", r.data)
-        self.assertIn(b"add-dip", r.data)
+        self.assertIn(b"data-dip-id", r.data)
+        self.assertIn(b"Salted Fries", r.data)
 
     def test_server_ignores_browser_prices(self):
         oid = self.place(cart=[{"item_id": 1, "quantity": 1, "price": 1}])
@@ -136,6 +137,28 @@ class CustomerFlow(Base):
         self.assertIsNone(self.row(oid)["token"])
         self.assertEqual(self.submit(oid).status_code, 200)
         self.assertEqual(self.row(oid)["order_status"], "PAYMENT_PENDING")
+
+
+class Menu(Base):
+    def test_fries_orderable_and_named_cleanly(self):
+        with get_db() as db:
+            fid = db.execute("SELECT id FROM menu_items WHERE name='Salted Fries'").fetchone()["id"]
+        oid = self.place(cart=[{"item_id": fid, "quantity": 2}])
+        self.assertEqual(self.row(oid)["total_amount"], 158)
+        with get_db() as db:
+            self.assertEqual(db.execute("SELECT item_name FROM order_items WHERE order_id=?", (oid,)).fetchone()[0], "Salted Fries")
+
+    def test_init_is_repeatable_and_adds_fries_to_old_db(self):
+        with get_db() as db: db.execute("DELETE FROM menu_items WHERE category='Fries'")
+        database.init_database(); database.init_database()
+        with get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 13)
+            prices = [r[0] for r in db.execute("SELECT price FROM menu_items WHERE category='Fries' ORDER BY id")]
+        self.assertEqual(prices, [79, 99, 129])
+
+    def test_sold_out_shown_on_menu(self):
+        with get_db() as db: db.execute("UPDATE menu_items SET available=0 WHERE id=1")
+        self.assertIn(b"SOLD OUT", self.client.get("/").data)
 
 
 class Tokens(Base):

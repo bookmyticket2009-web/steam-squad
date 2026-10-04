@@ -143,6 +143,8 @@ MENU = [
 ]
 DIPS = [("Cheese Sauce", 10), ("Schezwan Sauce", 10), ("Tandoori Sauce", 10), ("Peri Peri Sauce", 10)]
 
+FRIES = [("Salted Fries", "Fries", "Regular", 0, 79), ("Peri Peri Fries", "Fries", "Regular", 0, 99), ("Cheesy Fries", "Fries", "Regular", 0, 129)]
+
 def utcnow():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -155,10 +157,10 @@ def init_database():
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_payment_id ON payments(payment_id) WHERE payment_id IS NOT NULL")
         except sqlite3.IntegrityError:
             print("WARNING: duplicate payment references exist in an old database; unique index not created.")
-        if db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0] == 0:
-            db.executemany(
-                "INSERT INTO menu_items(name,category,variant,pieces,price) VALUES (?,?,?,?,?)", MENU
-            )
+        # INSERT OR IGNORE: adds new items (like fries) to an existing database without touching prices you changed
+        db.executemany(
+            "INSERT OR IGNORE INTO menu_items(name,category,variant,pieces,price) VALUES (?,?,?,?,?)", MENU + FRIES
+        )
         if db.execute("SELECT COUNT(*) FROM dips").fetchone()[0] == 0:
             db.executemany("INSERT INTO dips(name,price) VALUES (?,?)", DIPS)
         db.commit()

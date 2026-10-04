@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, abort, flash, Response
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
@@ -19,6 +20,8 @@ from token_manager import assign_token
 from refund_manager import refund_if_eligible
 
 app = Flask(__name__)
+# Behind Render's proxy: use the real visitor IP (for rate limits) and https scheme
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config.from_object(Config)
 if not app.config["SECRET_KEY"]:
     if app.config["DEBUG"]:
@@ -111,7 +114,7 @@ def create_order_from_cart(name, phone, cart, instructions):
                 verified_items.append((dr, dqty, True))
 
         if not any(len(e) == 2 for e in verified_items):
-            raise ValueError("Add at least one plate of momos to your order.")
+            raise ValueError("Add at least one item to your order (dips alone can't be ordered).")
 
         created = utcnow()
         cur = db.execute(
@@ -137,7 +140,7 @@ def create_order_from_cart(name, phone, cart, instructions):
                 db.execute("""
                     INSERT INTO order_items(order_id,menu_item_id,variant,quantity,unit_price,subtotal,item_name)
                     VALUES(?,?,?,?,?,?,?)
-                """, (order_id, obj["id"], obj["variant"], qty, obj["price"], obj["price"]*qty, f"{obj['name']} - {obj['variant']}"))
+                """, (order_id, obj["id"], obj["variant"], qty, obj["price"], obj["price"]*qty, obj['name'] if obj['variant'] == "Regular" else f"{obj['name']} - {obj['variant']}"))
         db.execute(
             "INSERT INTO payments(order_id,gateway,amount,status) VALUES(?,?,?,?)",
             (order_id, "fam", total, "PENDING")
@@ -147,7 +150,7 @@ def create_order_from_cart(name, phone, cart, instructions):
 
 @app.get("/")
 def home():
-    return render_template("index.html", menu=get_menu(), dips=get_dips())
+    return render_template("index.html", menu=get_menu(True), dips=get_dips(True))
 
 @app.get("/cart")
 def cart():
