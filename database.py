@@ -3,8 +3,12 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+from dotenv import load_dotenv
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "instance", "steam_squad.db")
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+# DB_PATH lets you keep the database on a persistent disk (e.g. /var/data/steam_squad.db on Render)
+DB_PATH = os.getenv("DB_PATH") or os.path.join(BASE_DIR, "instance", "steam_squad.db")
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -70,6 +74,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     unit_price INTEGER NOT NULL,
     subtotal INTEGER NOT NULL,
     item_name TEXT NOT NULL,
+    cooking TEXT,
     FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY(menu_item_id) REFERENCES menu_items(id),
     FOREIGN KEY(dip_id) REFERENCES dips(id)
@@ -152,6 +157,8 @@ def init_database():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with get_db() as db:
         db.executescript(SCHEMA)
+        if "cooking" not in [r["name"] for r in db.execute("PRAGMA table_info(order_items)")]:
+            db.execute("ALTER TABLE order_items ADD COLUMN cooking TEXT")   # steam / fry choice per plate
         try:
             # One UTR can only ever be attached to one order.
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_payment_id ON payments(payment_id) WHERE payment_id IS NOT NULL")

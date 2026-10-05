@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -52,6 +53,8 @@ TRANSITIONS = {
     "CANCELLED": ("REFUNDED",),
 }
 IST = timezone(timedelta(hours=5, minutes=30))
+COOKABLE = ("Steam", "Peri Peri", "Tandoori", "Cheese Loaded")   # can be steamed or fried
+FRY_EXTRA = 10                                                      # Rs added to a plate when fried
 CANCEL_WINDOW_MINUTES = 2   # customer cancellation window, starts when you verify the payment
 
 def now_utc():
@@ -92,7 +95,7 @@ def create_order_from_cart(name, phone, cart, instructions):
                 if not dr:
                     raise ValueError("One of your selected dips is unavailable.")
                 total += dr["price"] * dqty
-                verified_items.append((dr, dqty, True))
+                verified_items.append(("dip", dr, dqty))
                 continue
             item_id = int(item.get("item_id", 0))
             qty = int(item.get("quantity", 0))
@@ -101,8 +104,14 @@ def create_order_from_cart(name, phone, cart, instructions):
             mi = db.execute("SELECT * FROM menu_items WHERE id=? AND available=1", (item_id,)).fetchone()
             if not mi:
                 raise ValueError("One of your items is sold out.")
-            total += mi["price"] * qty
-            verified_items.append((mi, qty))
+            fry = bool(item.get("fry"))
+            cookable = mi["category"] in COOKABLE
+            if fry and not cookable:
+                raise ValueError("The fry option isn't available for this item.")
+            unit = mi["price"] + (FRY_EXTRA if fry else 0)
+            cooking = ("Fry" if fry else "Steam") if cookable else ("Fry" if mi["category"] == "Fry" else None)
+            total += unit * qty
+            verified_items.append(("item", mi, qty, unit, cooking))
 
             for dip in item.get("dips", []) or []:
                 dip_id = int(dip.get("dip_id", 0))
@@ -113,9 +122,9 @@ def create_order_from_cart(name, phone, cart, instructions):
                 if not dr:
                     raise ValueError("One of your selected dips is unavailable.")
                 total += dr["price"] * dqty
-                verified_items.append((dr, dqty, True))
+                verified_items.append(("dip", dr, dqty))
 
-        if not any(len(e) == 2 for e in verified_items):
+        if not any(e[0] == "item" for e in verified_items):
             raise ValueError("Add at least one item to your order (dips alone can't be ordered).")
 
         created = utcnow()
@@ -132,17 +141,21 @@ def create_order_from_cart(name, phone, cart, instructions):
         order_id = cur.lastrowid
 
         for entry in verified_items:
-            obj, qty, *is_dip = entry
-            if is_dip:
-                db.execute("""
-                    INSERT INTO order_items(order_id,dip_id,quantity,unit_price,subtotal,item_name)
-                    VALUES(?,?,?,?,?,?)
-                """, (order_id, obj["id"], qty, obj["price"], obj["price"]*qty, obj["name"]))
+            if entry[0] == "dip":
+                _, obj, qty = entry
+                db.execute("INSERT INTO order_items(order_id,dip_id,quantity,unit_price,subtotal,item_name) VALUES(?,?,?,?,?,?)",
+                           (order_id, obj["id"], qty, obj["price"], obj["price"] * qty, obj["name"]))
+                continue
+            _, obj, qty, unit, cooking = entry
+            if obj["variant"] == "Regular":
+                label = obj["name"]
             else:
-                db.execute("""
-                    INSERT INTO order_items(order_id,menu_item_id,variant,quantity,unit_price,subtotal,item_name)
-                    VALUES(?,?,?,?,?,?,?)
-                """, (order_id, obj["id"], obj["variant"], qty, obj["price"], obj["price"]*qty, obj['name'] if obj['variant'] == "Regular" else f"{obj['name']} - {obj['variant']}"))
+                base = "Fry Momos" if (obj["category"] == "Steam" and cooking == "Fry") else obj["name"]
+                label = f"{base} - {obj['variant']}"
+                if obj["category"] in COOKABLE and obj["category"] != "Steam":
+                    label += f" ({cooking})"
+            db.execute("INSERT INTO order_items(order_id,menu_item_id,variant,quantity,unit_price,subtotal,item_name,cooking) VALUES(?,?,?,?,?,?,?,?)",
+                       (order_id, obj["id"], obj["variant"], qty, unit, unit * qty, label, cooking))
         db.execute(
             "INSERT INTO payments(order_id,gateway,amount,status) VALUES(?,?,?,?)",
             (order_id, "fam", total, "PENDING")
@@ -152,7 +165,7 @@ def create_order_from_cart(name, phone, cart, instructions):
 
 @app.get("/")
 def home():
-    return render_template("index.html", menu=get_menu(True), dips=get_dips(True))
+    return render_template("index.html", menu=get_menu(True), dips=get_dips(True), fry_extra=FRY_EXTRA)
 
 @app.get("/cart")
 def cart():
@@ -267,11 +280,6 @@ def admin_verify_payment(order_id):
                    ("PAYMENT_VERIFIED", order_id, f"UTR {row['payment_id']} · Token {token}", now.isoformat(), actor))
         db.commit()
     flash(f"Payment verified. Token {token} assigned.", "success")
-    return redirect(url_for("admin_orders"))
-
-@app.get("/admin/payments")
-@admin_required
-def admin_payments():
     return redirect(url_for("admin_orders"))
 
 @app.post("/admin/payments/<int:order_id>/reject")
@@ -426,11 +434,81 @@ def admin_dashboard():
 @admin_required
 def admin_orders():
     active = ("PAID", "ACCEPTED", "PREPARING", "READY", "REFUND_REQUESTED")
-    orders = sorted((o for o in list_orders(business_date()) if o["order_status"] in active), key=lambda o: o["id"])
-    queue = pending_payment_orders()
-    for o in orders + queue:
+    today = business_date()
+    date = request.args.get("date", "")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        date = today
+    everything = list_orders(date)
+    orders = sorted((o for o in everything if o["order_status"] in active), key=lambda o: o["id"])
+    done = [o for o in everything if o["order_status"] not in active][:200]   # completed, cancelled, refunded
+    queue = pending_payment_orders() if date == today else []
+    for o in orders + done + queue:
         o["items"] = get_order(o["id"])["items"]
-    return render_template("admin/orders.html", orders=orders, queue=queue)
+    return render_template("admin/orders.html", orders=orders, done=done, queue=queue, date=date, today=today)
+
+@app.get("/admin/payments")
+@admin_required
+def admin_payments():
+    """Every payment attempt with its UTR, to tick off against your UPI statement."""
+    days = min(max(request.args.get("days", 1, type=int), 1), 31)
+    start = (datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1))
+    since = start.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+    with get_db() as db:
+        rows = [dict(r) for r in db.execute("""SELECT o.id, o.order_number, o.token, o.total_amount, o.created_at, o.order_status,
+                c.name, c.phone, p.payment_id, p.status pstatus
+            FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN payments p ON p.order_id=o.id
+            WHERE o.created_at>=? ORDER BY o.id DESC LIMIT 500""", (since,)).fetchall()]
+    for r in rows:
+        r["time"] = datetime.fromisoformat(r["created_at"]).astimezone(IST).strftime("%d %b, %I:%M %p")
+    ok = [r for r in rows if r["pstatus"] == "VERIFIED"]
+    totals = {"verified": len(ok), "amount": sum(r["total_amount"] for r in ok),
+              "waiting": sum(1 for r in rows if r["pstatus"] == "SUBMITTED" and r["order_status"] == "PAYMENT_PENDING"),
+              "rejected": sum(1 for r in rows if r["pstatus"] == "REJECTED")}
+    return render_template("admin/payments.html", rows=rows, totals=totals, days=days)
+
+@app.get("/admin/backup")
+@admin_required
+def admin_backup():
+    """Safe snapshot of the whole database. Contains phone numbers: keep the file private."""
+    import tempfile
+    with get_db() as src, tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+        dst = sqlite3.connect(tmp.name); src.backup(dst); dst.close()
+        with open(tmp.name, "rb") as f:
+            data = f.read()
+    audit("ADMIN_BACKUP", session.get("admin_username", "admin"))
+    return Response(data, mimetype="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="steam-squad-{business_date()}.db"'})
+
+@app.context_processor
+def inject_storage_warning():
+    # On Render the project disk is wiped on every restart/redeploy unless DB_PATH points at a persistent Disk
+    return {"storage_warning": bool(os.getenv("RENDER")) and not os.getenv("DB_PATH")}
+
+def _asset_version():
+    newest = 0
+    for base, _, files in os.walk(os.path.join(app.root_path, "static")):
+        for f in files:
+            newest = max(newest, int(os.path.getmtime(os.path.join(base, f))))
+    return str(newest)
+
+ASSET_V = _asset_version()
+
+@app.url_defaults
+def bust_static_cache(endpoint, values):
+    """/static/js/app.js?v=... so phones never keep using an old script after a deploy."""
+    if endpoint == "static":
+        values.setdefault("v", ASSET_V)
+
+ORDERS_LINK = re.compile(r'(<a\b[^>]*href="/admin/orders"[^>]*>\s*Orders\s*</a>)')
+
+@app.after_request
+def add_payments_link(resp):
+    """Adds "Payments" under "Orders" in the old admin sidebar without editing each template."""
+    if request.path.startswith("/admin") and resp.mimetype == "text/html" and not resp.direct_passthrough:
+        html = resp.get_data(as_text=True)
+        if "<aside" in html and 'href="/admin/payments"' not in html:
+            resp.set_data(ORDERS_LINK.sub(r'\1<a href="/admin/payments">Payments</a>', html, count=1))
+    return resp
 
 @app.get("/admin/api/queue")
 @admin_required

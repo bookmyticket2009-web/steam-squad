@@ -39,3 +39,10 @@ Use HTTPS (set `COOKIE_SECURE=1`). Run with `gunicorn -w 1 --threads 4 app:app`.
 - Set `COOKIE_SECURE=1`, `SECRET_KEY` and a strong admin password on the server. Never commit `.env`.
 - Built in: CSRF tokens, rate limits (login, checkout, payment, order lookup), CSP with per-request nonces, clickjacking protection, no-store caching on private pages, HSTS over HTTPS, 2-hour admin idle logout, login attempts written to `audit_logs`.
 - Turn on 2-factor login for your GitHub and Render accounts, and back up `instance/steam_squad.db`.
+
+## Keep your orders (important on Render)
+Render's free plan wipes the project disk on every restart and deploy, so a SQLite database stored there starts empty again (orders and tokens back to zero). To keep data:
+1. Use a paid Render instance (Disks are not available on free).
+2. Service → Disks → Add Disk: mount path `/var/data`.
+3. Add environment variable `DB_PATH=/var/data/steam_squad.db`, then redeploy.
+Until then, download a backup from Admin → Payments → "Backup database" at the end of each day.

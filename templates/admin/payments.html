@@ -1,20 +1,21 @@
 {% extends "base.html" %}{% block title %}Payments · SS Admin{% endblock %}
-{% block content %}<meta http-equiv="refresh" content="10">
-<section class="section">
-<div class="section-head"><h1>VERIFY PAYMENTS</h1><span><a href="{{ url_for('admin_dashboard') }}">← Dashboard</a> · <a href="{{ url_for('admin_orders') }}">Orders</a> · <a href="{{ url_for('admin_tokens') }}">Live Tokens</a></span></div>
-<p class="muted">Customers who have paid and sent a UTR. Compare the <b>amount</b> and <b>UTR</b> with the customer's "Payment successful" screen or your payment alert, then verify. This page refreshes every 10 seconds.</p>
-{% if not queue %}<div class="panel center"><h2>Nothing waiting 🎉</h2></div>{% endif %}
-<div class="order-grid">
-{% for o in queue %}
-<div class="order-card">
-  <div class="order-top"><b>₹{{ o.total_amount }}</b><span class="status">WAITING</span></div>
-  <p class="muted">{{ o.order_number }} · {{ o.customer_name }} · {{ o.phone }}</p>
-  <p>{% for i in o['items'] %}{{ i.quantity }} × {{ i.item_name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
-  <div class="fam-id">UTR {{ o.payment_id }}</div>
-  <div class="actions">
-    <form method="post" action="{{ url_for('admin_verify_payment', order_id=o.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn success" type="submit">VERIFY ₹{{ o.total_amount }}</button></form>
-    <form method="post" action="{{ url_for('admin_reject_payment', order_id=o.id) }}" onsubmit="return confirm('Reject this payment?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger" type="submit">REJECT</button></form>
-  </div>
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><h1>PAYMENTS</h1><a class="btn sm" href="{{ url_for('admin_backup') }}">⬇ BACKUP DATABASE</a></div>
+<div class="admin-nav"><a href="?days=1" class="{{ 'on' if days == 1 }}">Today</a><a href="?days=7" class="{{ 'on' if days == 7 }}">7 days</a><a href="?days=31" class="{{ 'on' if days == 31 }}">31 days</a></div>
+<div class="stats-grid">
+  <div class="stat"><small>Verified total</small><strong>₹{{ totals.amount }}</strong></div>
+  <div class="stat"><small>Verified payments</small><strong>{{ totals.verified }}</strong></div>
+  <div class="stat"><small>Waiting for you</small><strong>{{ totals.waiting }}</strong></div>
+  <div class="stat"><small>Rejected</small><strong>{{ totals.rejected }}</strong></div>
 </div>
-{% endfor %}
-</div></section>{% endblock %}
+{% if totals.waiting %}<p class="pay-warn">{{ totals.waiting }} payment(s) waiting. <a href="{{ url_for('admin_orders') }}"><b>Verify them on the Orders page →</b></a></p>{% endif %}
+<p class="muted small">Tick the UTRs below against your UPI app statement at the end of the day.</p>
+<div class="panel table-wrap"><table>
+<tr><th>Time</th><th>Order</th><th>Token</th><th>Customer</th><th>Amount</th><th>UTR / reference</th><th>Status</th></tr>
+{% for r in rows %}<tr>
+  <td>{{ r.time }}</td><td>{{ r.order_number }}</td><td><b>{{ r.token or '—' }}</b></td><td>{{ r.name }}<br><span class="muted small">{{ r.phone }}</span></td><td>₹{{ r.total_amount }}</td>
+  <td>{{ r.payment_id or '—' }}</td>
+  <td><span class="status {{ {'VERIFIED':'ready','SUBMITTED':'preparing','REJECTED':'cancelled'}.get(r.pstatus, '') }}">{{ {'VERIFIED':'VERIFIED','SUBMITTED':'WAITING','REJECTED':'REJECTED'}.get(r.pstatus, 'NO UTR YET') }}</span>{% if r.order_status in ['REFUND_REQUESTED','REFUNDED','CANCELLED'] %} <span class="status refunded">{{ r.order_status.replace('_',' ') }}</span>{% endif %}</td>
+</tr>{% else %}<tr><td colspan="7" class="center muted">No payments in this period.</td></tr>{% endfor %}
+</table></div></section>{% endblock %}

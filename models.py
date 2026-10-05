@@ -57,12 +57,12 @@ def dashboard_stats(date):
             FROM orders WHERE business_date=?
         """, (date,)).fetchone()
         category_rows = db.execute("""
-            SELECT mi.category, SUM(oi.quantity) qty
+            SELECT CASE WHEN oi.cooking='Fry' AND mi.category='Steam' THEN 'Fry' ELSE mi.category END AS category, SUM(oi.quantity) qty
             FROM order_items oi
             JOIN orders o ON o.id=oi.order_id
             JOIN menu_items mi ON mi.id=oi.menu_item_id
             WHERE o.business_date=? AND o.payment_status='PAID'
-            GROUP BY mi.category
+            GROUP BY 1
         """, (date,)).fetchall()
         variant_rows = db.execute("""
             SELECT oi.variant, SUM(oi.quantity) qty
@@ -79,6 +79,7 @@ def dashboard_stats(date):
         result["categories"] = {r["category"]: r["qty"] for r in category_rows}
         result["variants"] = {r["variant"]: r["qty"] for r in variant_rows}
         result["dips"] = dip_qty
+        result["fried"] = db.execute("SELECT COALESCE(SUM(oi.quantity),0) q FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.business_date=? AND o.payment_status='PAID' AND oi.cooking='Fry'", (date,)).fetchone()["q"]
         return result
 
 def list_orders(date=None):

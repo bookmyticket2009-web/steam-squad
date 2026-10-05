@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block title %}Steam Squad Momos · Order online{% endblock %}
-{% set info = {'Steam':'Soft, juicy & classic. The original taste.','Fry':'Crispy outside, soft inside.','Peri Peri':'Spicy. Tangy. Addictive.','Tandoori':'Smoky flavour, full of taste.','Cheese Loaded':'More cheese. More happiness.'} %}
-{% set tint = {'Steam':'#f3d9a4','Fry':'#ffa24a','Peri Peri':'#ff5a4d','Tandoori':'#ff7a3d','Cheese Loaded':'#ffd83d'} %}
+{% set info = {'Steam':'Soft, juicy & classic. The original taste.','Peri Peri':'Spicy. Tangy. Addictive.','Tandoori':'Smoky flavour, full of taste.','Cheese Loaded':'More cheese. More happiness.'} %}
+{% set tint = {'Steam':'#f3d9a4','Peri Peri':'#ff5a4d','Tandoori':'#ff7a3d','Cheese Loaded':'#ffd83d'} %}
 {% block content %}
 <section class="hero"><div>
   <p class="hand">Small bites. Big happiness.</p>
@@ -11,14 +11,16 @@
 <ol class="how"><li><b>1</b>Pick your momos</li><li><b>2</b>Pay with any UPI app</li><li><b>3</b>Get your token</li><li><b>4</b>Collect when it says READY</li></ol>
 <nav class="chips" aria-label="Menu sections"><a href="#momos">Momos</a><a href="#fries">Fries</a><a href="#dips">Extra dips</a></nav>
 
-<section id="momos" class="section"><div class="section-head"><h2><span class="brush">MOMOS</span></h2><span>8 pcs per plate</span></div>
+<section id="momos" class="section"><div class="section-head"><h2><span class="brush">MOMOS</span></h2><span>8 pcs per plate · steam or fry</span></div>
 <div class="menu-grid">{% for cat, desc in info.items() %}
 <article class="dish" style="--c:{{ tint[cat] }}"><svg class="ico" aria-hidden="true"><use href="#i-momo"/></svg>
   <div><h3>{{ cat.upper() }} MOMOS</h3><p class="muted">{{ desc }}</p></div>
-  <div class="opts">{% for m in menu if m.category == cat %}
-    <div class="opt{% if not m.available %} soldout{% endif %}" data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="{{ m.pieces }}">
-      <div class="opt-head"><svg class="v {{ m.variant|lower }}" aria-hidden="true"><use href="#i-{{ 'leaf' if m.variant == 'Veg' else 'paneer' }}"/></svg><span>{{ m.variant }}</span><b>₹{{ m.price }}</b></div>
-      <div class="ctl">{% if not m.available %}<span class="so">SOLD OUT</span>{% endif %}</div></div>{% endfor %}</div>
+  <div class="picks">{% for m in menu if m.category == cat %}
+    <button type="button" class="pick" {% if not m.available %}disabled{% endif %} data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-cat="{{ cat }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="{{ m.pieces }}" data-extra="{{ fry_extra }}">
+      <span class="cnt" hidden></span>
+      <span class="t"><svg class="v {{ m.variant|lower }}" aria-hidden="true"><use href="#i-{{ 'leaf' if m.variant == 'Veg' else 'paneer' }}"/></svg>{{ m.variant|upper }}</span>
+      {% if m.available %}<b>₹{{ m.price }}</b><small>TAP TO ADD</small>{% else %}<small>SOLD OUT</small>{% endif %}
+    </button>{% endfor %}</div>
 </article>{% endfor %}</div></section>
 
 <section id="fries" class="section"><div class="section-head"><h2><span class="brush">FRIES</span></h2><span>Hot &amp; crispy</span></div>
@@ -33,4 +35,13 @@
   <div class="opt-head"><svg class="v" style="color:var(--orange)" aria-hidden="true"><use href="#i-dip"/></svg><span>{{ d.name }}</span><b>₹{{ d.price }}</b></div>
   <div class="ctl">{% if not d.available %}<span class="so">SOLD OUT</span>{% endif %}</div></div>{% endfor %}</div>
 <p class="center muted" style="margin-top:22px">Eat. Repeat. Be happy.</p></section>
+<dialog id="sheet" class="sheet" aria-labelledby="sheetTitle"><div class="sheet-in">
+  <button type="button" class="sheet-x" data-close aria-label="Close">×</button>
+  <h3 id="sheetTitle"></h3><p class="muted" id="sheetSub"></p>
+  <div class="cook big" role="group" aria-label="How do you want it cooked?">
+    <button type="button" class="on" data-style="steam"><b>STEAM</b><small>₹0 extra</small></button>
+    <button type="button" data-style="fry"><b>FRY</b><small id="fryExtra"></small></button></div>
+  <div class="step"><button type="button" data-q="-1" aria-label="Fewer">−</button><b id="sheetQty">1</b><button type="button" data-q="1" aria-label="More">+</button></div>
+  <button type="button" class="btn primary full" id="sheetAdd"></button>
+</div></dialog>
 {% endblock %}

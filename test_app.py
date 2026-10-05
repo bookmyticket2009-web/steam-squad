@@ -66,6 +66,10 @@ class Base(unittest.TestCase):
 class CustomerFlow(Base):
     def test_home_has_dips(self):
         r = self.client.get("/")
+        self.assertEqual(r.data.count(b'data-style="fry"'), 1)    # one Steam/Fry pop-up, not a toggle on every tile
+        self.assertEqual(r.data.count(b'class="pick"'), 8)        # 4 flavours x Veg|Paneer
+        self.assertIn(b'<dialog id="sheet"', r.data); self.assertNotIn(b"FRY MOMOS", r.data)
+        self.assertRegex(r.data.decode(), r"style\.css\?v=\d+")  # cache-busted static files
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"STEAM SQUAD", r.data)
         self.assertIn(b"data-dip-id", r.data)
@@ -249,6 +253,86 @@ class Security(Base):
         r = self.client.post("/checkout", json={"name": "A", "phone": "9000000001", "cart": [PLATE]})
         self.assertEqual(r.status_code, 429)
         self.assertEqual(self.place(phone="9000000002") > 0, True)   # other people unaffected
+
+
+@app.get("/admin/_sidebar_probe")
+def _sidebar_probe():   # test-only page that looks like the old admin sidebar
+    return '<aside><a href="/admin/orders">Orders</a><a href="/admin/tokens">Live Tokens</a></aside>'
+
+
+class AdminHistory(Base):
+    def test_completed_orders_stay_visible_and_history_by_date(self):
+        oid = self.paid_order(); adm = self.admin()
+        for s in ("PREPARING", "READY", "COMPLETED"):
+            adm.post(f"/admin/orders/{oid}/status", data={"status": s})
+        html = adm.get("/admin/orders").get_data(as_text=True)
+        self.assertIn("DONE · 1", html); self.assertIn("SS-001", html)
+        self.assertIn("DONE · 0", adm.get("/admin/orders?date=2020-01-01").get_data(as_text=True))
+        self.assertEqual(adm.get("/admin/orders?date=garbage").status_code, 200)   # bad dates fall back to today
+
+    def test_payments_page_lists_utr_and_totals(self):
+        a = self.place(); self.submit(a, "412345678901")
+        b = self.paid_order(); adm = self.admin()
+        html = adm.get("/admin/payments").get_data(as_text=True)
+        self.assertIn("412345678901", html); self.assertIn("WAITING", html); self.assertIn("VERIFIED", html)
+        self.assertIn("₹99", html); self.assertEqual(app.test_client().get("/admin/payments").status_code, 302)
+        self.assertEqual(adm.get("/admin/payments?days=999").status_code, 200)
+
+    def test_payments_link_added_to_old_sidebar(self):
+        html = self.admin().get("/admin/_sidebar_probe").get_data(as_text=True)
+        self.assertEqual(html.count('href="/admin/payments"'), 1)
+        self.assertLess(html.index("/admin/payments"), html.index("Live Tokens"))
+
+    def test_backup_is_admin_only_valid_sqlite(self):
+        self.paid_order()
+        self.assertEqual(app.test_client().get("/admin/backup").status_code, 302)
+        r = self.admin().get("/admin/backup")
+        self.assertEqual(r.status_code, 200); self.assertTrue(r.data.startswith(b"SQLite format 3"))
+
+    def test_storage_warning_only_on_render_without_db_path(self):
+        adm = self.admin()
+        with mock.patch.dict(os.environ, {"RENDER": "true"}, clear=False):
+            os.environ.pop("DB_PATH", None)
+            self.assertIn("temporary storage", adm.get("/admin/orders").get_data(as_text=True))
+            os.environ["DB_PATH"] = "/var/data/x.db"
+            self.assertNotIn("temporary storage", adm.get("/admin/orders").get_data(as_text=True))
+        self.assertNotIn("temporary storage", adm.get("/admin/orders").get_data(as_text=True))
+
+
+class FryOption(Base):
+    def lines(self, oid):
+        with get_db() as db:
+            return [tuple(r) for r in db.execute("SELECT item_name,unit_price,quantity,cooking FROM order_items WHERE order_id=? ORDER BY id", (oid,))]
+
+    def test_fry_adds_10_per_plate_and_is_priced_by_server(self):
+        oid = self.place(cart=[{"item_id": 5, "quantity": 2, "fry": True, "price": 1},   # Peri Peri Veg 119
+                               {"item_id": 5, "quantity": 1},                             # same plate, steamed
+                               {"item_id": 1, "quantity": 1, "fry": True},                # Steam Veg 99 -> Fry Momos 109
+                               {"item_id": 1, "quantity": 1}])
+        self.assertEqual(self.row(oid)["total_amount"], 129 * 2 + 119 + 109 + 99)
+        self.assertEqual(self.lines(oid), [("Peri Peri Momos - Veg (Fry)", 129, 2, "Fry"), ("Peri Peri Momos - Veg (Steam)", 119, 1, "Steam"),
+                                           ("Fry Momos - Veg", 109, 1, "Fry"), ("Steam Momos - Veg", 99, 1, "Steam")])
+
+    def test_fry_option_rejected_where_it_makes_no_sense(self):
+        with get_db() as db:
+            fries = db.execute("SELECT id FROM menu_items WHERE category='Fries'").fetchone()["id"]
+        for iid in (fries, 3):   # fries, and the old already-fried "Fry Momos" item
+            r = self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [{"item_id": iid, "quantity": 1, "fry": True}]})
+            self.assertEqual(r.status_code, 400)
+
+    def test_dashboard_counts_fried_plates(self):
+        from app import business_date
+        from models import dashboard_stats
+        oid = self.place(cart=[{"item_id": 1, "quantity": 2, "fry": True}, {"item_id": 5, "quantity": 1, "fry": True}, {"item_id": 5, "quantity": 1}])
+        self.submit(oid); self.admin().post(f"/admin/payments/{oid}/verify")
+        st = dashboard_stats(business_date())
+        self.assertEqual((st["categories"].get("Fry"), st["categories"].get("Peri Peri"), st["fried"]), (2, 2, 3))
+
+    def test_old_database_gets_cooking_column(self):
+        with get_db() as db: db.execute("ALTER TABLE order_items DROP COLUMN cooking")
+        database.init_database()
+        with get_db() as db:
+            self.assertIn("cooking", [r["name"] for r in db.execute("PRAGMA table_info(order_items)")])
 
 
 class Tokens(Base):

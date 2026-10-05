@@ -5,6 +5,7 @@
 {% include "admin/_nav.html" %}
 <div class="queue-bar"><h1>ORDERS</h1><button id="enableAlerts" class="btn warn" type="button">🔔 TURN ON ALERTS</button></div>
 <p class="muted small">Keep this page open. When a payment arrives you get a sound and a notification.</p>
+<form method="get" class="datebar"><label class="muted small">Day <input type="date" name="date" value="{{ date }}" max="{{ today }}"></label><button class="btn sm" type="submit">SHOW</button>{% if date != today %}<a class="btn sm" href="{{ url_for('admin_orders') }}">TODAY</a>{% endif %}</form>
 <div id="live">
 {% if queue %}<h2 class="q-title">CHECK PAYMENT · {{ queue|length }}</h2><div class="order-grid">
 {% for o in queue %}<div class="order-card pay">
@@ -30,5 +31,7 @@
   {% if s in ['PAID','ACCEPTED','PREPARING','READY'] %}{{ act(o,'CANCELLED','CANCEL','danger sm','Cancel this order? You must refund the customer yourself.') }}{% endif %}
   </div></div>{% endfor %}</div>{% endif %}
 {% if not queue and not orders %}<div class="panel center"><h2>No orders right now</h2><p class="muted">New orders appear here by themselves.</p></div>{% endif %}
+<h2 class="q-title">DONE · {{ done|length }} <span class="muted small">({{ date }})</span></h2>
+{% for o in done %}{% set s = o.order_status %}<div class="donerow"><span class="tk">{{ o.token or '—' }}</span><span class="status {{ s|lower }}">{{ s.replace('_',' ') }}</span><b>₹{{ o.total_amount }}</b><span class="muted">{{ o.customer_name }} · {% for i in o['items'] %}{{ i.quantity }}×{{ i.item_name }}{% if not loop.last %}, {% endif %}{% endfor %}</span></div>{% else %}<p class="muted">Nothing finished yet for this day.</p>{% endfor %}
 </div></section>{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/admin.js') }}"></script>{% endblock %}
