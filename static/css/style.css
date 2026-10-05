@@ -124,3 +124,9 @@ dialog.sheet::backdrop{background:#000c}
 .toast{position:fixed;left:50%;bottom:92px;transform:translate(-50%,20px);background:#fff;color:#111;font-weight:800;padding:12px 18px;border-radius:12px;opacity:0;pointer-events:none;transition:.2s;z-index:40;max-width:90%;text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 @media(min-width:700px){dialog.sheet{margin:auto}.sheet-in{border-radius:24px}}
+
+.refund{display:grid;gap:8px;flex:1 1 100%}.small{font-size:13px;color:var(--muted)}.kv td:first-child{color:var(--muted);width:40%}.panel h2{font-size:20px;margin-bottom:10px}
+
+/* stock page */
+.stockcard .bignum{font-family:Anton,sans-serif;font-size:64px;line-height:1}.stockcard.low{border-left-color:var(--yellow)}.stockcard.low .bignum{color:var(--yellow)}
+.stockcard.out{border-left-color:var(--red)}.stockcard.out .bignum{color:var(--red)}.setform{display:flex;gap:8px;margin-top:10px}.setform input{flex:1;min-width:0}.stockcard form+form{margin-top:0}

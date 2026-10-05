@@ -16,24 +16,24 @@
 <article class="dish" style="--c:{{ tint[cat] }}"><svg class="ico" aria-hidden="true"><use href="#i-momo"/></svg>
   <div><h3>{{ cat.upper() }} MOMOS</h3><p class="muted">{{ desc }}</p></div>
   <div class="picks">{% for m in menu if m.category == cat %}
-    <button type="button" class="pick" {% if not m.available %}disabled{% endif %} data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-cat="{{ cat }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="{{ m.pieces }}" data-extra="{{ fry_extra }}">
+    <button type="button" class="pick" {% if not m.orderable %}disabled{% endif %} data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-cat="{{ cat }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="{{ m.pieces }}" data-extra="{{ fry_extra }}" data-left="{{ m.stock if m.stock is not none else '' }}">
       <span class="cnt" hidden></span>
       <span class="t"><svg class="v {{ m.variant|lower }}" aria-hidden="true"><use href="#i-{{ 'leaf' if m.variant == 'Veg' else 'paneer' }}"/></svg>{{ m.variant|upper }}</span>
-      {% if m.available %}<b>₹{{ m.price }}</b><small>TAP TO ADD</small>{% else %}<small>SOLD OUT</small>{% endif %}
+      {% if m.orderable %}<b>₹{{ m.price }}</b><small>{% if m.stock is not none and m.stock <= 5 %}ONLY {{ m.stock }} LEFT{% else %}TAP TO ADD{% endif %}</small>{% else %}<small>SOLD OUT</small>{% endif %}
     </button>{% endfor %}</div>
 </article>{% endfor %}</div></section>
 
 <section id="fries" class="section"><div class="section-head"><h2><span class="brush">FRIES</span></h2><span>Hot &amp; crispy</span></div>
 <div class="menu-grid">{% for m in menu if m.category == 'Fries' %}
 <article class="dish" style="--c:#ffd83d"><svg class="ico" aria-hidden="true"><use href="#i-fries"/></svg><div><h3>{{ m.name.upper() }}</h3></div>
-  <div class="opts"><div class="opt{% if not m.available %} soldout{% endif %}" data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="0">
-    <div class="opt-head"><span>Regular</span><b>₹{{ m.price }}</b></div><div class="ctl">{% if not m.available %}<span class="so">SOLD OUT</span>{% endif %}</div></div></div>
+  <div class="opts"><div class="opt{% if not m.orderable %} soldout{% endif %}" data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="0" data-left="{{ m.stock if m.stock is not none else '' }}">
+    <div class="opt-head"><span>Regular</span><b>₹{{ m.price }}</b></div><div class="ctl">{% if not m.orderable %}<span class="so">SOLD OUT</span>{% endif %}</div></div></div>
 </article>{% endfor %}</div></section>
 
 <section id="dips" class="section"><div class="section-head"><h2><span class="brush">EXTRA DIPS</span></h2><span>₹10 each</span></div>
-<div class="dips">{% for d in dips %}<div class="opt{% if not d.available %} soldout{% endif %}" data-dip-id="{{ d.id }}" data-name="{{ d.name }}" data-price="{{ d.price }}">
+<div class="dips">{% for d in dips %}<div class="opt{% if not d.orderable %} soldout{% endif %}" data-dip-id="{{ d.id }}" data-name="{{ d.name }}" data-price="{{ d.price }}" data-left="{{ d.stock if d.stock is not none else '' }}">
   <div class="opt-head"><svg class="v" style="color:var(--orange)" aria-hidden="true"><use href="#i-dip"/></svg><span>{{ d.name }}</span><b>₹{{ d.price }}</b></div>
-  <div class="ctl">{% if not d.available %}<span class="so">SOLD OUT</span>{% endif %}</div></div>{% endfor %}</div>
+  <div class="ctl">{% if not d.orderable %}<span class="so">SOLD OUT</span>{% endif %}</div></div>{% endfor %}</div>
 <p class="center muted" style="margin-top:22px">Eat. Repeat. Be happy.</p></section>
 <dialog id="sheet" class="sheet" aria-labelledby="sheetTitle"><div class="sheet-in">
   <button type="button" class="sheet-x" data-close aria-label="Close">×</button>

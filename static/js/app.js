@@ -39,11 +39,11 @@ function renderPicks(){
 }
 
 // Pop-up: Steam ₹0 / Fry +₹10, quantity, live total
-const sheet=document.getElementById("sheet"); let cur=null, fry=false, qty=1;
+const sheet=document.getElementById("sheet"); let cur=null, fry=false, qty=1, room=50;
 function paintSheet(){
  const d=cur.dataset, extra=+d.extra, unit=+d.price+(fry?extra:0);
  document.getElementById("sheetTitle").textContent=`${d.name} · ${d.variant}`;
- document.getElementById("sheetSub").textContent=`${d.pieces} PCS per plate · how do you want it?`;
+ document.getElementById("sheetSub").textContent=`${d.pieces} PCS per plate · how do you want it?`+(room<=5?` · only ${room} left`:"");
  document.getElementById("fryExtra").textContent=`+₹${extra}`;
  sheet.querySelectorAll("[data-style]").forEach(b=>b.classList.toggle("on",(b.dataset.style==="fry")===fry));
  document.getElementById("sheetQty").textContent=qty;
@@ -51,12 +51,16 @@ function paintSheet(){
 }
 document.addEventListener("click",e=>{
  const pk=e.target.closest(".pick");
- if(pk&&sheet){cur=pk;fry=false;qty=1;paintSheet();sheet.showModal();return}
+ if(pk&&sheet){
+  const left=pk.dataset.left===""?Infinity:+pk.dataset.left, have=getCart().filter(x=>x.item_id===+pk.dataset.itemId).reduce((s,x)=>s+x.quantity,0);
+  room=Math.min(50,left-have);
+  if(room<=0){toast(`Only ${left} left, and they're all in your cart`);return}
+  cur=pk;fry=false;qty=1;paintSheet();sheet.showModal();return}
  if(sheet&&(e.target===sheet||sheet.contains(e.target))){
   const t=e.target;
   if(t===sheet||t.closest("[data-close]")){sheet.close();return}
   const st=t.closest("[data-style]"); if(st){fry=st.dataset.style==="fry";paintSheet();return}
-  const q=t.closest("[data-q]"); if(q){qty=Math.min(50,Math.max(1,qty+ +q.dataset.q));paintSheet();return}
+  const q=t.closest("[data-q]"); if(q){qty=Math.min(room,Math.max(1,qty+ +q.dataset.q));paintSheet();return}
   if(t.closest("#sheetAdd")){addToCart(momoItem(cur.dataset,fry),qty);sheet.close();toast(`Added ${qty} × ${fry&&cur.dataset.cat==="Steam"?"Fry Momos":cur.dataset.name} (${cur.dataset.variant}${fry?", Fry":", Steam"})`)}
   return;
  }
@@ -64,6 +68,6 @@ document.addEventListener("click",e=>{
  if(e.target.closest(".add-btn")){const d=o.dataset;addToCart(d.dipId?{dip_id:+d.dipId,name:d.name,variant:"Extra dip",price:+d.price}:momoItem(d,false));return}
  const s=e.target.closest("[data-d]"); if(!s)return;
  const c=getCart(), i=c.findIndex(mine(o)); if(i<0)return;
- c[i].quantity=Math.min(50,c[i].quantity+ +s.dataset.d); if(c[i].quantity<=0)c.splice(i,1); saveCart(c);
+ const left=o.dataset.left?+o.dataset.left:50; c[i].quantity=Math.min(50,left,c[i].quantity+ +s.dataset.d); if(c[i].quantity<=0)c.splice(i,1); saveCart(c);
 });
 updateCartCount();

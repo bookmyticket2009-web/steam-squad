@@ -17,7 +17,7 @@
   <a class="btn primary full" href="{{ url_for('payment_page', order_id=order.id) }}">TRY AGAIN</a>
 {% elif s in ['CANCELLED','REFUND_REQUESTED','REFUNDED'] %}
   <h1>ORDER CANCELLED</h1>
-  <p class="muted">{% if s == 'REFUNDED' %}Your refund has been completed.{% else %}Your refund request has been sent to the stall. Refunds are sent back to the account you paid from.{% endif %}</p>
+  <p class="muted">{% if s == 'REFUNDED' %}Your refund has been completed.{% elif not order.paid_at %}This order wasn't paid in time, so it was released. Please order again. Already paid? Show your payment screen at the stall.{% else %}Your refund request has been sent to the stall. Refunds are sent back to the account you paid from.{% endif %}</p>
 {% else %}
   <h1>ORDER CONFIRMED ✓</h1>
   {% if s == 'READY' %}<div class="ready-banner">🔔 YOUR ORDER IS READY<strong>{{ order.token }}</strong><span>Please show this token at the counter.</span></div>

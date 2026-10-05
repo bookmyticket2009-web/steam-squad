@@ -1,18 +1,24 @@
 from database import get_db, utcnow
 
+def _orderable(rows):
+    """orderable = switched on by you AND (not tracked OR plates left)."""
+    for r in rows:
+        r["orderable"] = bool(r["available"]) and (r["stock"] is None or r["stock"] > 0)
+    return rows
+
 def get_menu(include_unavailable=False):
     with get_db() as db:
         q = "SELECT * FROM menu_items"
         if not include_unavailable:
             q += " WHERE available=1"
-        return [dict(r) for r in db.execute(q + " ORDER BY id").fetchall()]
+        return _orderable([dict(r) for r in db.execute(q + " ORDER BY id").fetchall()])
 
 def get_dips(include_unavailable=False):
     with get_db() as db:
         q = "SELECT * FROM dips"
         if not include_unavailable:
             q += " WHERE available=1"
-        return [dict(r) for r in db.execute(q + " ORDER BY id").fetchall()]
+        return _orderable([dict(r) for r in db.execute(q + " ORDER BY id").fetchall()])
 
 def get_order(order_id):
     with get_db() as db:
@@ -106,8 +112,12 @@ def add_status(order_id, new_status, actor):
             "INSERT INTO order_status_history(order_id,old_status,new_status,created_at,admin_username) VALUES(?,?,?,?,?)",
             (order_id, old["order_status"], new_status, now, actor)
         )
-        if new_status == "COMPLETED":
-            db.execute("UPDATE orders SET completed_at=? WHERE id=?", (now, order_id))
+        stamp = {"ACCEPTED": "accepted_at", "PREPARING": "preparing_at", "READY": "ready_at",
+                 "COMPLETED": "completed_at", "CANCELLED": "cancelled_at", "REFUND_REQUESTED": "cancelled_at"}.get(new_status)
+        if stamp:   # column name comes from this fixed list, never from user input
+            db.execute(f"UPDATE orders SET {stamp}=? WHERE id=?", (now, order_id))
+        if new_status == "PREPARING" and old["order_status"] == "READY":   # "not ready" undo
+            db.execute("UPDATE orders SET ready_at=NULL WHERE id=?", (order_id,))
         db.execute(
             "INSERT INTO audit_logs(action,order_id,details,created_at,actor) VALUES(?,?,?,?,?)",
             ("STATUS_CHANGE", order_id, f"{old['order_status']} -> {new_status}", now, actor)

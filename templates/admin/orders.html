@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block title %}Orders · SS Admin{% endblock %}
 {% macro act(o, status, label, cls='', confirm='') %}<form class="ajax" method="post" action="{{ url_for('admin_status', order_id=o.id) }}" {% if confirm %}data-confirm="{{ confirm }}"{% endif %}><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="status" value="{{ status }}"><button class="btn {{ cls }}" type="submit">{{ label }}</button></form>{% endmacro %}
-{% macro items(o) %}<p class="order-items">{% for i in o['items'] %}{{ i.quantity }} × {{ i.item_name }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>{% if o.special_instructions %}<p class="note">📝 {{ o.special_instructions }}</p>{% endif %}{% endmacro %}
+{% macro items(o) %}<p class="order-items">{% for i in o['items'] %}{{ i.quantity }} × {{ i.item_name }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>{% if o.special_instructions %}<p class="note">📝 {{ o.special_instructions }}</p>{% endif %}<a class="small" href="{{ url_for('admin_order_history', order_id=o.id) }}">Full history →</a>{% endmacro %}
 {% block content %}<section class="section admin-wrap">
 {% include "admin/_nav.html" %}
 <div class="queue-bar"><h1>ORDERS</h1><button id="enableAlerts" class="btn warn" type="button">🔔 TURN ON ALERTS</button></div>
@@ -27,11 +27,11 @@
   {% elif s == 'ACCEPTED' %}{{ act(o,'PREPARING','PREPARING','warn') }}
   {% elif s == 'PREPARING' %}{{ act(o,'READY','✓ MARK READY','success') }}
   {% elif s == 'READY' %}{{ act(o,'COMPLETED','COMPLETED (HANDED OVER)','primary') }}{{ act(o,'PREPARING','NOT READY') }}
-  {% elif s == 'REFUND_REQUESTED' %}{{ act(o,'REFUNDED','REFUND SENT','primary','Have you sent ₹' ~ o.total_amount ~ ' back to the customer?') }}{% endif %}
+  {% elif s == 'REFUND_REQUESTED' %}<form class="ajax refund" method="post" action="{{ url_for('admin_status', order_id=o.id) }}" data-confirm="Have you sent ₹{{ o.total_amount }} back to the customer?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="status" value="REFUNDED"><input name="reference" maxlength="40" placeholder="Refund UTR / reference (optional)" autocomplete="off"><button class="btn primary" type="submit">REFUND SENT</button></form>{% endif %}
   {% if s in ['PAID','ACCEPTED','PREPARING','READY'] %}{{ act(o,'CANCELLED','CANCEL','danger sm','Cancel this order? You must refund the customer yourself.') }}{% endif %}
   </div></div>{% endfor %}</div>{% endif %}
 {% if not queue and not orders %}<div class="panel center"><h2>No orders right now</h2><p class="muted">New orders appear here by themselves.</p></div>{% endif %}
 <h2 class="q-title">DONE · {{ done|length }} <span class="muted small">({{ date }})</span></h2>
-{% for o in done %}{% set s = o.order_status %}<div class="donerow"><span class="tk">{{ o.token or '—' }}</span><span class="status {{ s|lower }}">{{ s.replace('_',' ') }}</span><b>₹{{ o.total_amount }}</b><span class="muted">{{ o.customer_name }} · {% for i in o['items'] %}{{ i.quantity }}×{{ i.item_name }}{% if not loop.last %}, {% endif %}{% endfor %}</span></div>{% else %}<p class="muted">Nothing finished yet for this day.</p>{% endfor %}
+{% for o in done %}{% set s = o.order_status %}<div class="donerow"><span class="tk">{{ o.token or '—' }}</span><span class="status {{ s|lower }}">{{ s.replace('_',' ') }}</span><b>₹{{ o.total_amount }}</b><span class="muted">{{ o.customer_name }} · {% for i in o['items'] %}{{ i.quantity }}×{{ i.item_name }}{% if not loop.last %}, {% endif %}{% endfor %}</span><a class="small" href="{{ url_for('admin_order_history', order_id=o.id) }}">History →</a></div>{% else %}<p class="muted">Nothing finished yet for this day.</p>{% endfor %}
 </div></section>{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/admin.js') }}"></script>{% endblock %}

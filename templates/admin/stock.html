@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% block title %}Stock · SS Admin{% endblock %}
+{% macro card(kind, m, name) %}<div class="order-card stockcard {{ 'out' if m.stock is not none and m.stock <= 0 else ('low' if m.stock is not none and m.stock <= 5 else '') }}" id="{{ kind }}{{ m.id }}">
+  <div class="order-top"><b>{{ name }}</b>{% if not m.available %}<span class="status cancelled">HIDDEN</span>{% endif %}</div>
+  <div class="bignum">{{ m.stock if m.stock is not none else '∞' }}</div>
+  <p class="muted small">{{ 'plates left' if m.stock is not none else 'not tracked (customers can always order)' }}</p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('admin_stock_change', kind=kind, item_id=m.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="counter"><input type="hidden" name="amount" value="1"><button class="btn warn" type="submit">− 1 SOLD AT COUNTER</button></form>
+    <form method="post" action="{{ url_for('admin_stock_change', kind=kind, item_id=m.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add"><input type="hidden" name="amount" value="10"><button class="btn" type="submit">+ 10 RESTOCK</button></form>
+  </div>
+  <form class="setform" method="post" action="{{ url_for('admin_stock_change', kind=kind, item_id=m.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="set"><input name="amount" type="number" inputmode="numeric" min="0" max="9999" required placeholder="Set total plates"><button class="btn" type="submit">SET</button></form>
+  {% if m.stock is not none %}<form method="post" action="{{ url_for('admin_stock_change', kind=kind, item_id=m.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="untrack"><button class="btn sm" type="submit">STOP TRACKING</button></form>{% endif %}
+</div>{% endmacro %}
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><h1>STOCK</h1></div>
+<p class="muted">Set how many plates you have. <b>Online orders subtract automatically</b>; press <b>− 1 SOLD AT COUNTER</b> for walk-in customers so online buyers never order what's gone. At 0 the item shows SOLD OUT on the website. Cancelled and unpaid orders give their plates back.</p>
+<h2 class="q-title">MOMOS &amp; FRIES</h2><div class="order-grid">{% for m in menu if m.category != 'Fry' %}{{ card('menu', m, m.name ~ ('' if m.variant == 'Regular' else ' · ' ~ m.variant)) }}{% endfor %}</div>
+<h2 class="q-title">EXTRA DIPS</h2><div class="order-grid">{% for d in dips %}{{ card('dip', d, d.name) }}{% endfor %}</div>
+<h2 class="q-title">RECENT STOCK CHANGES</h2>
+<div class="panel table-wrap"><table><tr><th>When</th><th>Item</th><th>Change</th><th>Left</th><th>Why</th><th>By</th></tr>
+{% for l in log %}<tr><td>{{ l.created_at|ist }}</td><td>{{ l.item }}</td><td>{{ '%+d' % l.change }}</td><td>{{ l.stock_after }}</td><td>{{ l.reason.replace('_',' ') }}{% if l.order_id %} <a href="{{ url_for('admin_order_history', order_id=l.order_id) }}">#{{ l.order_id }}</a>{% endif %}</td><td>{{ l.actor or '—' }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted center">No stock changes yet.</td></tr>{% endfor %}</table></div>
+</section>{% endblock %}

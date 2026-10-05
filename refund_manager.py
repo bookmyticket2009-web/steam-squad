@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
-from database import get_db, utcnow
+from flask import has_request_context, request
+from database import get_db, utcnow, record, release_stock
 
 def parse_iso(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -23,9 +24,10 @@ def refund_if_eligible(order_id):
             raise ValueError("Cancellation window expired.")
         now = utcnow()
         db.execute("UPDATE orders SET order_status='REFUND_REQUESTED', cancelled_at=? WHERE id=?", (now, order_id))
-        db.execute("INSERT INTO refunds(order_id,amount,status,requested_at) VALUES(?,?,?,?)",
-                   (order_id, row["total_amount"], "REFUND_REQUESTED", now))
-        db.execute("INSERT INTO audit_logs(action,order_id,details,created_at,actor) VALUES(?,?,?,?,?)",
-                   ("REFUND_REQUESTED", order_id, "Manual FAM refund required", now, "customer"))
+        db.execute("INSERT INTO refunds(order_id,amount,status,requested_at,requested_by) VALUES(?,?,?,?,?)",
+                   (order_id, row["total_amount"], "REFUND_REQUESTED", now, "customer"))
+        record(db, order_id, "REFUND_REQUESTED", "customer", "Customer cancelled inside the window; manual UPI refund required",
+               row["order_status"], "REFUND_REQUESTED", request.remote_addr if has_request_context() else None)
+        release_stock(db, order_id, "customer", "ORDER_RELEASED")   # cancelled before cooking: plates go back
         db.commit()
     return True

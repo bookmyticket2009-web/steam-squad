@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block title %}Payments · SS Admin{% endblock %}
 {% block content %}<section class="section admin-wrap">
 {% include "admin/_nav.html" %}
-<div class="queue-bar"><h1>PAYMENTS</h1><a class="btn sm" href="{{ url_for('admin_backup') }}">⬇ BACKUP DATABASE</a></div>
+<div class="queue-bar"><h1>PAYMENTS</h1><span class="actions"><a class="btn sm" href="{{ url_for('admin_export') }}">⬇ ALL ORDERS (CSV)</a><a class="btn sm" href="{{ url_for('admin_backup') }}">⬇ BACKUP DATABASE</a></span></div>
 <div class="admin-nav"><a href="?days=1" class="{{ 'on' if days == 1 }}">Today</a><a href="?days=7" class="{{ 'on' if days == 7 }}">7 days</a><a href="?days=31" class="{{ 'on' if days == 31 }}">31 days</a></div>
 <div class="stats-grid">
   <div class="stat"><small>Verified total</small><strong>₹{{ totals.amount }}</strong></div>
@@ -14,7 +14,7 @@
 <div class="panel table-wrap"><table>
 <tr><th>Time</th><th>Order</th><th>Token</th><th>Customer</th><th>Amount</th><th>UTR / reference</th><th>Status</th></tr>
 {% for r in rows %}<tr>
-  <td>{{ r.time }}</td><td>{{ r.order_number }}</td><td><b>{{ r.token or '—' }}</b></td><td>{{ r.name }}<br><span class="muted small">{{ r.phone }}</span></td><td>₹{{ r.total_amount }}</td>
+  <td>{{ r.time }}</td><td><a href="{{ url_for('admin_order_history', order_id=r.id) }}">{{ r.order_number }}</a></td><td><b>{{ r.token or '—' }}</b></td><td>{{ r.name }}<br><span class="muted small">{{ r.phone }}</span></td><td>₹{{ r.total_amount }}</td>
   <td>{{ r.payment_id or '—' }}</td>
   <td><span class="status {{ {'VERIFIED':'ready','SUBMITTED':'preparing','REJECTED':'cancelled'}.get(r.pstatus, '') }}">{{ {'VERIFIED':'VERIFIED','SUBMITTED':'WAITING','REJECTED':'REJECTED'}.get(r.pstatus, 'NO UTR YET') }}</span>{% if r.order_status in ['REFUND_REQUESTED','REFUNDED','CANCELLED'] %} <span class="status refunded">{{ r.order_status.replace('_',' ') }}</span>{% endif %}</td>
 </tr>{% else %}<tr><td colspan="7" class="center muted">No payments in this period.</td></tr>{% endfor %}

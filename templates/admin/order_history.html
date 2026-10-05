@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% block title %}{{ order.order_number }} · History{% endblock %}
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><h1>{{ order.token or 'NO TOKEN' }}</h1><span class="status {{ order.order_status|lower }}">{{ order.order_status.replace('_',' ') }}</span></div>
+<p class="muted">{{ order.order_number }} · everything the database holds about this order</p>
+
+<div class="panel table-wrap"><h2>ORDER</h2><table class="kv">
+{% for k, v in [('Customer', order.customer_name), ('Phone', order.phone), ('Total', '₹' ~ order.total_amount), ('Business day', order.business_date), ('Special instructions', order.special_instructions),
+  ('Placed', order.created_at|ist), ('Placed from (IP)', order.created_ip), ('Device', order.user_agent),
+  ('Payment submitted', order.payment_submitted_at|ist if order.payment_submitted_at else None), ('Payment verified', order.paid_at|ist if order.paid_at else None), ('Verified by', order.verified_by),
+  ('Cancel deadline', order.cancellation_deadline|ist if order.cancellation_deadline else None),
+  ('Accepted', order.accepted_at|ist if order.accepted_at else None), ('Preparing', order.preparing_at|ist if order.preparing_at else None), ('Ready', order.ready_at|ist if order.ready_at else None),
+  ('Completed', order.completed_at|ist if order.completed_at else None), ('Cancelled', order.cancelled_at|ist if order.cancelled_at else None)] %}
+<tr><td>{{ k }}</td><td>{{ v if v else '—' }}</td></tr>{% endfor %}</table></div>
+
+<div class="panel table-wrap"><h2>ITEMS</h2><table><tr><th>Item</th><th>Cooking</th><th>Qty</th><th>Price each</th><th>Subtotal</th></tr>
+{% for i in order['items'] %}<tr><td>{{ i.item_name }}</td><td>{{ i.cooking or '—' }}</td><td>{{ i.quantity }}</td><td>₹{{ i.unit_price }}</td><td>₹{{ i.subtotal }}</td></tr>{% endfor %}</table></div>
+
+<div class="panel table-wrap"><h2>PAYMENT ATTEMPTS</h2><table><tr><th>When</th><th>UTR / reference</th><th>IP</th><th>Result</th><th>Decided</th><th>By</th></tr>
+{% for a in attempts %}<tr><td>{{ a.submitted_at|ist }}</td><td>{{ a.reference }}</td><td>{{ a.ip or '—' }}</td><td>{{ a.outcome }}</td><td>{{ a.decided_at|ist if a.decided_at else '—' }}</td><td>{{ a.decided_by or '—' }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No reference submitted yet.</td></tr>{% endfor %}</table></div>
+
+<div class="panel table-wrap"><h2>STATUS TIMELINE</h2><table><tr><th>When</th><th>From → To</th><th>By</th><th>IP</th><th>Note</th></tr>
+{% for h in history %}<tr><td>{{ h.created_at|ist }}</td><td>{{ h.old_status or '—' }} → <b>{{ h.new_status }}</b></td><td>{{ h.admin_username or '—' }}</td><td>{{ h.ip or '—' }}</td><td>{{ h.note or '' }}</td></tr>{% endfor %}</table></div>
+
+{% if refunds %}<div class="panel table-wrap"><h2>REFUND</h2><table><tr><th>Requested</th><th>By</th><th>Amount</th><th>Status</th><th>Refund reference</th><th>Completed</th><th>By</th></tr>
+{% for r in refunds %}<tr><td>{{ r.requested_at|ist }}</td><td>{{ r.requested_by or '—' }}</td><td>₹{{ r.amount }}</td><td>{{ r.status }}</td><td>{{ r.refund_id or '—' }}</td><td>{{ r.completed_at|ist if r.completed_at else '—' }}</td><td>{{ r.completed_by or '—' }}</td></tr>{% endfor %}</table></div>{% endif %}
+
+<div class="panel table-wrap"><h2>ALL EVENTS</h2><table><tr><th>When</th><th>Event</th><th>By</th><th>Details</th></tr>
+{% for e in events %}<tr><td>{{ e.created_at|ist }}</td><td>{{ e.action }}</td><td>{{ e.actor or '—' }}</td><td>{{ e.details or '' }}</td></tr>{% endfor %}</table></div>
+</section>{% endblock %}

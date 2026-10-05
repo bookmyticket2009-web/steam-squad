@@ -14,7 +14,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from config import Config
-from database import init_database, get_db, utcnow
+from database import init_database, get_db, utcnow, record, change_stock, set_stock, release_stock
 from models import get_menu, get_dips, get_order, update_menu_item, update_dip, dashboard_stats, list_orders, add_status, pending_payment_orders
 from auth import admin_required, verify_admin
 from payment import fam_configured, get_fam_id, upi_link, app_links, qr_bytes, valid_utr
@@ -54,6 +54,7 @@ TRANSITIONS = {
 }
 IST = timezone(timedelta(hours=5, minutes=30))
 COOKABLE = ("Steam", "Peri Peri", "Tandoori", "Cheese Loaded")   # can be steamed or fried
+UNPAID_EXPIRY_MINUTES = 45   # an order with no payment reference after this long gives its plates back
 FRY_EXTRA = 10                                                      # Rs added to a plate when fried
 CANCEL_WINDOW_MINUTES = 2   # customer cancellation window, starts when you verify the payment
 
@@ -74,6 +75,21 @@ def cancel_seconds(order):
 def valid_phone(phone):
     return bool(re.fullmatch(r"[6-9]\d{9}", phone or ""))
 
+def _expire_unpaid(db):
+    """Unpaid orders (no UTR sent) older than UNPAID_EXPIRY_MINUTES are closed and their plates returned."""
+    cutoff = (now_utc() - timedelta(minutes=UNPAID_EXPIRY_MINUTES)).replace(microsecond=0).isoformat()
+    for r in db.execute("""SELECT o.id, o.order_status FROM orders o JOIN payments p ON p.order_id=o.id
+                           WHERE o.order_status IN ('PAYMENT_PENDING','PAYMENT_FAILED') AND o.created_at<? AND p.status<>'SUBMITTED'""", (cutoff,)).fetchall():
+        db.execute("UPDATE orders SET order_status='CANCELLED', cancelled_at=? WHERE id=?", (utcnow(), r["id"]))
+        record(db, r["id"], "ORDER_EXPIRED", "system", f"not paid within {UNPAID_EXPIRY_MINUTES} minutes", r["order_status"], "CANCELLED", note="EXPIRED_UNPAID")
+        release_stock(db, r["id"], "system", "ORDER_EXPIRED")
+
+def expire_stale_orders():
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _expire_unpaid(db)
+        db.commit()
+
 def create_order_from_cart(name, phone, cart, instructions):
     if not name.strip() or not valid_phone(phone):
         raise ValueError("Enter a valid customer name and 10-digit Indian mobile number.")
@@ -82,6 +98,7 @@ def create_order_from_cart(name, phone, cart, instructions):
 
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
+        _expire_unpaid(db)
         total = 0
         verified_items = []
         for item in cart:
@@ -127,6 +144,16 @@ def create_order_from_cart(name, phone, cart, instructions):
         if not any(e[0] == "item" for e in verified_items):
             raise ValueError("Add at least one item to your order (dips alone can't be ordered).")
 
+        # plates per item (steam + fry lines of the same item add up) against what is left
+        want = {}
+        for e in verified_items:
+            rec = want.setdefault(("dip" if e[0] == "dip" else "menu", e[1]["id"]), [e[1], 0])
+            rec[1] += e[2]
+        for (kind, _), (obj, qty) in want.items():
+            if obj["stock"] is not None and qty > obj["stock"]:
+                label = obj["name"] if kind == "dip" else f"{obj['name']} ({obj['variant']})"
+                raise ValueError(f"Sorry, {label} is sold out." if obj["stock"] <= 0 else f"Only {obj['stock']} left of {label}. Please reduce the quantity.")
+
         created = utcnow()
         cur = db.execute(
             "INSERT INTO customers(name,phone,created_at) VALUES(?,?,?)",
@@ -160,6 +187,11 @@ def create_order_from_cart(name, phone, cart, instructions):
             "INSERT INTO payments(order_id,gateway,amount,status) VALUES(?,?,?,?)",
             (order_id, "fam", total, "PENDING")
         )
+        db.execute("UPDATE orders SET created_ip=?, user_agent=? WHERE id=?",
+                   (request.remote_addr, (request.headers.get("User-Agent") or "")[:200], order_id))
+        for (kind, item_id), (obj, qty) in want.items():
+            change_stock(db, kind, item_id, -qty, "ONLINE_ORDER", "customer", order_id)   # no-op for untracked items
+        record(db, order_id, "ORDER_CREATED", "customer", f"total={total} lines={len(verified_items)}", None, "PAYMENT_PENDING", request.remote_addr)
         db.commit()
     return get_order(order_id)
 
@@ -169,8 +201,8 @@ def home():
 
 @app.get("/cart")
 def cart():
-    fries = [m for m in get_menu() if m["category"] == "Fries"]
-    return render_template("cart.html", fries=fries, dips=get_dips())
+    fries = [m for m in get_menu() if m["category"] == "Fries" and m["orderable"]]
+    return render_template("cart.html", fries=fries, dips=[d for d in get_dips() if d["orderable"]])
 
 @app.get("/my-orders")
 def my_orders():
@@ -237,13 +269,21 @@ def payment_submit():
             if row["payment_status"] == "PAID":
                 return jsonify({"ok": True, "message": "Payment already verified.", "redirect": url_for("order_page", order_id=order_id)})
             if row["order_status"] not in ("PAYMENT_PENDING", "PAYMENT_FAILED"):
+                if row["order_status"] == "CANCELLED" and not row["paid_at"]:
+                    record(db, order_id, "PAYMENT_AFTER_EXPIRY", "customer", f"reference {reference}", ip=request.remote_addr)
+                    db.commit()
+                    return jsonify({"ok": False, "message": "This order expired because it wasn't paid in time. Please order again. If you already paid, show your payment screen at the stall."}), 400
                 return jsonify({"ok": False, "message": "This order can no longer accept a payment."}), 400
-            if db.execute("SELECT 1 FROM payments WHERE payment_id=? AND order_id<>?", (reference, order_id)).fetchone():
+            # a reference used on ANY other order, even a rejected one, can never be reused
+            if (db.execute("SELECT 1 FROM payments WHERE payment_id=? AND order_id<>?", (reference, order_id)).fetchone()
+                    or db.execute("SELECT 1 FROM payment_attempts WHERE reference=? AND order_id<>?", (reference, order_id)).fetchone()):
                 return jsonify({"ok": False, "message": "This reference was already used for another order."}), 409
+            now = utcnow()
             db.execute("UPDATE payments SET payment_id=?, status='SUBMITTED' WHERE order_id=?", (reference, order_id))
-            db.execute("UPDATE orders SET payment_status='PENDING', order_status='PAYMENT_PENDING' WHERE id=?", (order_id,))
-            db.execute("INSERT INTO audit_logs(action,order_id,details,created_at,actor) VALUES(?,?,?,?,?)",
-                       ("PAYMENT_SUBMITTED", order_id, f"UTR {reference}", utcnow(), "customer"))
+            db.execute("UPDATE orders SET payment_status='PENDING', order_status='PAYMENT_PENDING', payment_submitted_at=? WHERE id=?", (now, order_id))
+            if not db.execute("SELECT 1 FROM payment_attempts WHERE order_id=? AND reference=? AND outcome='SUBMITTED'", (order_id, reference)).fetchone():
+                db.execute("INSERT INTO payment_attempts(order_id,reference,submitted_at,ip) VALUES(?,?,?,?)", (order_id, reference, now, request.remote_addr))
+            record(db, order_id, "PAYMENT_SUBMITTED", "customer", f"reference {reference}", ip=request.remote_addr)
             db.commit()
         return jsonify({"ok": True, "message": "Payment submitted. Waiting for the stall to confirm it.", "redirect": url_for("order_page", order_id=order_id)})
     except sqlite3.IntegrityError:
@@ -271,8 +311,10 @@ def admin_verify_payment(order_id):
         now = now_utc()
         deadline = now + timedelta(minutes=CANCEL_WINDOW_MINUTES)
         token = assign_token(db, order_id, business_date())
-        db.execute("UPDATE orders SET payment_status='PAID', order_status='PAID', paid_at=?, cancellation_deadline=? WHERE id=?",
-                   (now.isoformat(), deadline.isoformat(), order_id))
+        db.execute("UPDATE orders SET payment_status='PAID', order_status='PAID', paid_at=?, cancellation_deadline=?, verified_by=? WHERE id=?",
+                   (now.isoformat(), deadline.isoformat(), actor, order_id))
+        db.execute("UPDATE payment_attempts SET outcome='VERIFIED', decided_at=?, decided_by=? WHERE order_id=? AND reference=? AND outcome='SUBMITTED'",
+                   (now.isoformat(), actor, order_id, row["payment_id"]))
         db.execute("UPDATE payments SET status='VERIFIED', verified_at=? WHERE order_id=?", (now.isoformat(), order_id))
         db.execute("INSERT INTO order_status_history(order_id,old_status,new_status,created_at,admin_username) VALUES(?,?,?,?,?)",
                    (order_id, "PAYMENT_PENDING", "PAID", now.isoformat(), actor))
@@ -295,8 +337,10 @@ def admin_reject_payment(order_id):
         now = now_utc()
         db.execute("UPDATE payments SET status='REJECTED' WHERE order_id=?", (order_id,))
         db.execute("UPDATE orders SET payment_status='FAILED', order_status='PAYMENT_FAILED' WHERE id=?", (order_id,))
-        db.execute("INSERT INTO audit_logs(action,order_id,details,created_at,actor) VALUES(?,?,?,?,?)",
-                   ("PAYMENT_REJECTED", order_id, f"FAM reference {row['payment_id'] or 'none'}", now.isoformat(), session.get("admin_username", "admin")))
+        actor = session.get("admin_username", "admin")
+        db.execute("UPDATE payment_attempts SET outcome='REJECTED', decided_at=?, decided_by=? WHERE order_id=? AND reference=? AND outcome='SUBMITTED'",
+                   (now.isoformat(), actor, order_id, row["payment_id"]))
+        record(db, order_id, "PAYMENT_REJECTED", actor, f"reference {row['payment_id'] or 'none'}", "PAYMENT_PENDING", "PAYMENT_FAILED")
         db.commit()
     flash("Payment rejected.", "error")
     return redirect(url_for("admin_orders"))
@@ -374,7 +418,11 @@ def track_lookup():
             WHERE c.phone=? AND o.token=?
         """, (phone,token)).fetchone()
     if not row:
+        with get_db() as db:
+            record(db, None, "ORDER_LOOKUP_FAILED", "customer", f"token {token}", ip=request.remote_addr)
         return jsonify({"ok":False,"message":"Order not found."}), 404
+    with get_db() as db:
+        record(db, row["id"], "ORDER_LOOKUP", "customer", "opened with phone + token", ip=request.remote_addr)
     session.permanent = True
     session[f"order_access:{row['id']}"] = True
     return jsonify({"ok":True,"redirect":url_for("order_page",order_id=row["id"])})
@@ -434,6 +482,7 @@ def admin_dashboard():
 @admin_required
 def admin_orders():
     active = ("PAID", "ACCEPTED", "PREPARING", "READY", "REFUND_REQUESTED")
+    expire_stale_orders()
     today = business_date()
     date = request.args.get("date", "")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
@@ -465,6 +514,52 @@ def admin_payments():
               "waiting": sum(1 for r in rows if r["pstatus"] == "SUBMITTED" and r["order_status"] == "PAYMENT_PENDING"),
               "rejected": sum(1 for r in rows if r["pstatus"] == "REJECTED")}
     return render_template("admin/payments.html", rows=rows, totals=totals, days=days)
+
+@app.template_filter("ist")
+def ist_filter(value):
+    try:
+        return datetime.fromisoformat(value).astimezone(IST).strftime("%d %b %Y, %I:%M:%S %p")
+    except (TypeError, ValueError):
+        return value or "—"
+
+@app.get("/admin/orders/<int:order_id>/history")
+@admin_required
+def admin_order_history(order_id):
+    """Everything the database knows about one order, in time order."""
+    order = get_order(order_id)
+    if not order:
+        abort(404)
+    with get_db() as db:
+        rows = lambda sql: [dict(r) for r in db.execute(sql, (order_id,)).fetchall()]
+        return render_template("admin/order_history.html", order=order,
+            attempts=rows("SELECT * FROM payment_attempts WHERE order_id=? ORDER BY id"),
+            history=rows("SELECT * FROM order_status_history WHERE order_id=? ORDER BY id"),
+            events=rows("SELECT * FROM audit_logs WHERE order_id=? ORDER BY id"),
+            refunds=rows("SELECT * FROM refunds WHERE order_id=? ORDER BY id"))
+
+@app.get("/admin/export.csv")
+@admin_required
+def admin_export():
+    """One row per order with every recorded point. Opens in Excel / Google Sheets."""
+    import csv, io
+    with get_db() as db:
+        cur = db.execute("""SELECT o.order_number, o.token, o.business_date, o.created_at, c.name AS customer, c.phone,
+                (SELECT GROUP_CONCAT(oi.quantity || ' x ' || oi.item_name, '; ') FROM order_items oi WHERE oi.order_id=o.id) AS items,
+                o.total_amount, o.payment_status, o.order_status, p.payment_id AS utr, o.payment_submitted_at, o.paid_at, o.verified_by,
+                o.accepted_at, o.preparing_at, o.ready_at, o.completed_at, o.cancelled_at,
+                r.status AS refund_status, r.refund_id AS refund_reference, r.completed_at AS refunded_at,
+                o.special_instructions, o.created_ip
+            FROM orders o JOIN customers c ON c.id=o.customer_id LEFT JOIN payments p ON p.order_id=o.id LEFT JOIN refunds r ON r.order_id=o.id
+            ORDER BY o.id""")
+        headers, data = [d[0] for d in cur.description], cur.fetchall()
+        record(db, None, "ADMIN_EXPORT", session.get("admin_username", "admin"), f"{len(data)} orders")
+    def safe(v):   # stops customer-typed text being run as a spreadsheet formula
+        v = "" if v is None else str(v)
+        return "'" + v if v[:1] in ("=", "+", "-", "@") else v
+    out = io.StringIO(); w = csv.writer(out); w.writerow(headers)
+    for r in data: w.writerow([safe(v) for v in r])
+    return Response(out.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="steam-squad-orders-{business_date()}.csv"'})
 
 @app.get("/admin/backup")
 @admin_required
@@ -506,14 +601,18 @@ def add_payments_link(resp):
     """Adds "Payments" under "Orders" in the old admin sidebar without editing each template."""
     if request.path.startswith("/admin") and resp.mimetype == "text/html" and not resp.direct_passthrough:
         html = resp.get_data(as_text=True)
-        if "<aside" in html and 'href="/admin/payments"' not in html:
-            resp.set_data(ORDERS_LINK.sub(r'\1<a href="/admin/payments">Payments</a>', html, count=1))
+        if "<aside" in html:
+            extra = ("" if 'href="/admin/payments"' in html else '<a href="/admin/payments">Payments</a>') + \
+                    ("" if 'href="/admin/stock"' in html else '<a href="/admin/stock">Stock</a>')
+            if extra:
+                resp.set_data(ORDERS_LINK.sub(lambda m: m.group(1) + extra, html, count=1))
     return resp
 
 @app.get("/admin/api/queue")
 @admin_required
 def admin_queue_api():
     """Polled by the Orders page: `pending` = payments waiting, `sig` changes when anything changes."""
+    expire_stale_orders()
     pending = pending_payment_orders()
     sig = ";".join(f"{o['id']}:{o['order_status']}" for o in list_orders(business_date()))
     sig += "|" + ",".join(str(p["id"]) for p in pending)
@@ -531,11 +630,22 @@ def admin_status(order_id):
     if new_status not in TRANSITIONS.get(current["order_status"], ()):
         flash(f"Cannot change {current['order_status']} to {new_status}.", "error")
         return redirect(request.referrer or url_for("admin_orders"))
-    add_status(order_id, new_status, session.get("admin_username","admin"))
-    if new_status == "REFUNDED":
+    actor = session.get("admin_username", "admin")
+    if new_status == "CANCELLED" and current["payment_status"] == "PAID":
+        # money was taken, so the cancellation must become a refund that you can tick off later
+        new_status = "REFUND_REQUESTED"
         with get_db() as db:
-            db.execute("UPDATE refunds SET status='REFUNDED', completed_at=? WHERE order_id=? AND status<>'REFUNDED'", (utcnow(), order_id))
-            db.commit()
+            db.execute("INSERT INTO refunds(order_id,amount,status,requested_at,requested_by) VALUES(?,?,?,?,?)",
+                       (order_id, current["total_amount"], "REFUND_REQUESTED", utcnow(), actor))
+            if current["order_status"] in ("PAID", "ACCEPTED"):   # not cooked yet: plates go back (cooked ones don't)
+                release_stock(db, order_id, actor, "ORDER_RELEASED")
+    add_status(order_id, new_status, actor)
+    if new_status == "REFUNDED":
+        reference = re.sub(r"[^A-Za-z0-9]", "", request.form.get("reference", ""))[:40] or None
+        with get_db() as db:
+            db.execute("UPDATE refunds SET status='REFUNDED', completed_at=?, refund_id=?, completed_by=? WHERE order_id=? AND status<>'REFUNDED'",
+                       (utcnow(), reference, actor, order_id))
+            record(db, order_id, "REFUND_COMPLETED", actor, f"refund reference {reference or 'none'}")
     return redirect(request.referrer or url_for("admin_orders"))
 
 @app.get("/admin/orders/<int:order_id>")
@@ -553,19 +663,78 @@ def admin_menu():
 @app.post("/admin/menu/<int:item_id>/toggle")
 @admin_required
 def admin_menu_toggle(item_id):
-    update_menu_item(item_id, request.form.get("available") == "1")
+    on = request.form.get("available") == "1"
+    update_menu_item(item_id, on)
+    with get_db() as db:
+        r = db.execute("SELECT name, variant FROM menu_items WHERE id=?", (item_id,)).fetchone()
+        record(db, None, "MENU_AVAILABILITY", session.get("admin_username", "admin"), f"{r['name']} {r['variant']}: {'AVAILABLE' if on else 'SOLD OUT'}" if r else f"item {item_id}")
     return redirect(url_for("admin_menu"))
 
 @app.post("/admin/dips/<int:dip_id>/toggle")
 @admin_required
 def admin_dip_toggle(dip_id):
-    update_dip(dip_id, request.form.get("available") == "1")
+    on = request.form.get("available") == "1"
+    update_dip(dip_id, on)
+    with get_db() as db:
+        r = db.execute("SELECT name FROM dips WHERE id=?", (dip_id,)).fetchone()
+        record(db, None, "MENU_AVAILABILITY", session.get("admin_username", "admin"), f"{r['name']}: {'AVAILABLE' if on else 'SOLD OUT'}" if r else f"dip {dip_id}")
     return redirect(url_for("admin_menu"))
 
 @app.get("/admin/inventory")
 @admin_required
 def admin_inventory():
-    return render_template("admin/inventory.html")
+    return redirect(url_for("admin_stock"))
+
+@app.get("/admin/stock")
+@admin_required
+def admin_stock():
+    expire_stale_orders()
+    with get_db() as db:
+        log = [dict(r) for r in db.execute("""SELECT l.*, CASE l.kind WHEN 'dip' THEN d.name ELSE m.name || ' (' || m.variant || ')' END AS item
+            FROM stock_log l LEFT JOIN menu_items m ON l.kind='menu' AND m.id=l.item_id LEFT JOIN dips d ON l.kind='dip' AND d.id=l.item_id
+            ORDER BY l.id DESC LIMIT 25""").fetchall()]
+    return render_template("admin/stock.html", menu=get_menu(True), dips=get_dips(True), log=log)
+
+@app.post("/admin/stock/<kind>/<int:item_id>")
+@admin_required
+def admin_stock_change(kind, item_id):
+    """Counter sales (-), restock (+), set an exact number, or stop tracking."""
+    if kind not in ("menu", "dip"):
+        abort(404)
+    action = request.form.get("action", "")
+    raw = request.form.get("amount")
+    amount = 1 if raw is None else (int(raw) if re.fullmatch(r"-?\d{1,6}", raw.strip()) else None)   # junk -> None -> rejected, never "1"
+    actor = session.get("admin_username", "admin")
+    table = "dips" if kind == "dip" else "menu_items"
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(f"SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()
+        if not row:
+            abort(404)
+        label = row["name"] if kind == "dip" else f"{row['name']} ({row['variant']})"
+        have = row["stock"]
+        if action == "untrack":
+            db.execute(f"UPDATE {table} SET stock=NULL WHERE id=?", (item_id,))
+            record(db, None, "STOCK_UNTRACKED", actor, label)
+            flash(f"{label}: stock no longer tracked (unlimited).", "success")
+        elif action not in ("counter", "add", "set") or amount is None or not (0 <= amount <= 9999) or (action != "set" and amount < 1):
+            flash("Enter a whole number between 0 and 9999.", "error")
+        elif action == "counter" and (have is None or have <= 0):
+            flash(f"{label}: set the stock first." if have is None else f"{label} is already at 0.", "error")
+        elif action == "counter":
+            new = change_stock(db, kind, item_id, -amount, "COUNTER_SALE", actor)
+            record(db, None, "STOCK_COUNTER_SALE", actor, f"{label} -{min(amount, have)} -> {new}")
+            flash(f"{label}: {new} left.", "success")
+        elif action == "add" and have is not None:
+            new = change_stock(db, kind, item_id, amount, "RESTOCK", actor)
+            record(db, None, "STOCK_RESTOCK", actor, f"{label} +{amount} -> {new}")
+            flash(f"{label}: {new} left.", "success")
+        else:   # "set", or "add" on an item that was not tracked yet
+            set_stock(db, kind, item_id, amount, "SET" if action == "set" else "RESTOCK", actor)
+            record(db, None, "STOCK_SET", actor, f"{label} = {amount}")
+            flash(f"{label}: {amount} left.", "success")
+        db.commit()
+    return redirect(url_for("admin_stock") + f"#{kind}{item_id}")
 
 @app.get("/admin/refunds")
 @admin_required
