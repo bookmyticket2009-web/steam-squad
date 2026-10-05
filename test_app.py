@@ -161,6 +161,29 @@ class Menu(Base):
         self.assertIn(b"SOLD OUT", self.client.get("/").data)
 
 
+class CustomerPages(Base):
+    def test_cart_page_offers_extras(self):
+        html = self.client.get("/cart").get_data(as_text=True)
+        self.assertIn("ADD MORE", html); self.assertIn("Cheese Sauce", html); self.assertIn("Salted Fries", html)
+
+    def test_my_orders_only_shows_this_browsers_orders(self):
+        oid = self.place(); self.submit(oid)
+        mine = self.client.get("/my-orders").get_data(as_text=True)
+        self.assertIn("Waiting for payment", mine); self.assertIn("CHECK PAYMENT", mine)
+        self.assertIn("No orders yet", app.test_client().get("/my-orders").get_data(as_text=True))
+        self.admin().post(f"/admin/payments/{oid}/verify")
+        self.assertIn("SS-001", self.client.get("/my-orders").get_data(as_text=True))
+
+    def test_my_orders_shows_unpaid_order_with_pay_button(self):
+        self.place()
+        self.assertIn("COMPLETE PAYMENT", self.client.get("/my-orders").get_data(as_text=True))
+
+    def test_payment_page_has_app_buttons(self):
+        html = self.client.get(f"/payment/{self.place()}").get_data(as_text=True)
+        for pkg in ("com.phonepe.app", "net.one97.paytm", "com.google.android.apps.nbu.paisa.user"):
+            self.assertIn(pkg, html)
+
+
 class Tokens(Base):
     def test_simultaneous_verification_gives_unique_tokens(self):
         ids = []

@@ -10,7 +10,7 @@
 {% include "_icons.html" %}
 <header class="topbar">
   <a class="brand" href="{{ url_for('home') }}"><span class="brand-mark">🥟</span> STEAM SQUAD</a>
-  {% if not request.path.startswith('/admin') %}<nav><a href="{{ url_for('home') }}">Menu</a><a href="{{ url_for('track') }}">Track</a><a class="cart-link" href="{{ url_for('cart') }}">Cart <b id="cartCount">0</b></a></nav>{% endif %}
+  {% if not request.path.startswith('/admin') %}<nav><a href="{{ url_for('home') }}">Menu</a><a href="{{ url_for('my_orders') }}">My Orders</a><a class="cart-link" href="{{ url_for('cart') }}">Cart <b id="cartCount">0</b></a></nav>{% endif %}
 </header>
 <main>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</main>
 {% if not request.path.startswith('/admin') %}<a id="cartBar" class="cart-bar" href="{{ url_for('cart') }}" hidden><span><b id="barCount">0</b> items</span><span>VIEW CART · ₹<b id="barTotal">0</b></span></a>{% endif %}

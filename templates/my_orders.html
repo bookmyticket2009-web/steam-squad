@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}My Orders · Steam Squad{% endblock %}
+{% set label = {'PAYMENT_PENDING':'Waiting for payment','PAYMENT_FAILED':'Payment not confirmed','PAID':'Paid · order placed','ACCEPTED':'Accepted','PREPARING':'Preparing','READY':'READY FOR PICKUP','COMPLETED':'Completed','CANCELLED':'Cancelled','REFUND_REQUESTED':'Refund requested','REFUNDED':'Refunded'} %}
+{% block content %}<section class="section narrow"><div class="section-head"><h1>MY ORDERS</h1><a href="{{ url_for('track') }}">Find by token →</a></div>
+<div id="list">
+{% for o in orders %}{% set s = o.order_status %}<a class="myorder st-{{ s|lower }}" href="{{ url_for('order_page', order_id=o.id) }}">
+  <div class="order-top"><span class="big-token">{{ o.token or '···' }}</span><b>₹{{ o.total_amount }}</b></div>
+  <span class="status {{ s|lower }}">{{ label.get(s, s) }}</span>
+  <p class="muted">{% for i in o['items'] %}{{ i.quantity }} × {{ i.item_name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  <p class="muted small">{{ o.order_number }}</p>
+  {% if s in ['PAYMENT_PENDING','PAYMENT_FAILED'] %}<span class="btn primary full">{{ 'CHECK PAYMENT' if o.payment and o.payment.status == 'SUBMITTED' else 'COMPLETE PAYMENT' }}</span>
+  {% elif s == 'READY' %}<span class="btn success full">🔔 READY · SHOW TOKEN {{ o.token }}</span>{% endif %}
+</a>{% else %}<div class="empty"><div class="big-doodle">🥟</div><h2>No orders yet</h2><a class="btn primary" href="{{ url_for('home') }}">ORDER MOMOS</a></div>{% endfor %}
+</div>
+<p class="muted small center">Orders stay here for 12 hours on this phone. Lost the page? Use “Find by token” with your mobile number.</p></section>{% endblock %}
+{% block scripts %}<script>setInterval(async()=>{try{const h=await(await fetch(location.href,{cache:"no-store"})).text();const n=new DOMParser().parseFromString(h,"text/html").getElementById("list");if(n)document.getElementById("list").innerHTML=n.innerHTML}catch(_){}},8000)</script>{% endblock %}

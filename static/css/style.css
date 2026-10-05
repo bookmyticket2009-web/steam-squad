@@ -85,3 +85,11 @@ h1,h2,h3{overflow-wrap:anywhere}
 .so{display:grid;place-items:center;min-height:48px;color:var(--muted);font-weight:900;border:1px dashed #555;border-radius:12px}.opt.soldout{opacity:.55}
 .dips{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;max-width:1200px}
 @media(max-width:700px){.how{grid-template-columns:1fr 1fr;padding:0 15px}.hero .hand{font-size:19px}.hero .brush{font-size:28px}.menu-grid{grid-template-columns:1fr}.chips{top:48px}.mascot{width:150px;margin:0}.dips{grid-template-columns:1fr 1fr}.dips .opt-head span{font-size:14px}}
+
+/* ===== cart box steppers, add-more, my orders ===== */
+.cart-row .step{width:132px}.cart-row .step button{height:44px}
+.more{margin-top:34px;padding-top:24px;border-top:1px dashed #555}.more .dips{margin-top:14px}
+.myorder{display:block;background:var(--panel);border:1px solid var(--line);border-left:8px solid #555;border-radius:20px;padding:16px;margin-bottom:12px}
+.myorder.st-paid,.myorder.st-accepted{border-left-color:#4da3ff}.myorder.st-preparing{border-left-color:var(--yellow)}.myorder.st-ready{border-left-color:var(--green);background:#12261a}.myorder.st-completed{opacity:.75}
+.myorder.st-cancelled,.myorder.st-refunded,.myorder.st-refund_requested{border-left-color:#a77bff}.myorder .btn{margin-top:10px}
+@media(max-width:700px){.cart-row .step{grid-area:qty;width:140px}}

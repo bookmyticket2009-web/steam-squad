@@ -154,7 +154,17 @@ def home():
 
 @app.get("/cart")
 def cart():
-    return render_template("cart.html")
+    fries = [m for m in get_menu() if m["category"] == "Fries"]
+    return render_template("cart.html", fries=fries, dips=get_dips())
+
+@app.get("/my-orders")
+def my_orders():
+    """Orders placed from this browser (no account, no phone number needed)."""
+    ids = sorted((int(k.split(":")[1]) for k in session.keys() if k.startswith("order_access:")), reverse=True)[:20]
+    orders = [o for o in (get_order(i) for i in ids) if o]
+    for o in orders:
+        o["cancel_seconds"] = cancel_seconds(o)
+    return render_template("my_orders.html", orders=orders)
 
 @app.route("/checkout", methods=["GET","POST"])
 def checkout():
@@ -168,6 +178,7 @@ def checkout():
         if not fam_configured():
             return jsonify({"ok": False, "message": "Payments are not set up yet. Please ask the stall."}), 503
         order = create_order_from_cart(data.get("name",""), data.get("phone",""), cart_data, data.get("instructions",""))
+        session.permanent = True
         session[f"order_access:{order['id']}"] = True
         return jsonify({
             "ok": True,
@@ -345,6 +356,7 @@ def track_lookup():
         """, (phone,token)).fetchone()
     if not row:
         return jsonify({"ok":False,"message":"Order not found."}), 404
+    session.permanent = True
     session[f"order_access:{row['id']}"] = True
     return jsonify({"ok":True,"redirect":url_for("order_page",order_id=row["id"])})
 

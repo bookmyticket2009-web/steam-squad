@@ -6,11 +6,12 @@
 {% if order.order_status == 'PAYMENT_FAILED' %}<p class="pay-warn">Your last payment could not be confirmed. Check the UTR and try again, or pay again.</p>{% endif %}
 
 <div class="mobile-only">
-  <a class="btn primary full" href="{{ apps.upi }}">PAY ₹{{ order.total_amount }} WITH UPI APP</a>
-  <div class="app-row"><a class="btn" href="{{ apps.gpay }}">GPay</a><a class="btn" href="{{ apps.phonepe }}">PhonePe</a><a class="btn" href="{{ apps.paytm }}">Paytm</a></div>
-  <p class="muted small">Amount and payee are filled in for you. Just enter your UPI PIN.</p>
-  <p class="muted small">Nothing opened? Use the QR below or pay to the UPI ID.</p>
+  <a class="btn primary full upi-btn" data-main="1" data-app="a UPI app" href="{{ apps.upi }}">PAY ₹{{ order.total_amount }} WITH UPI APP</a>
+  <div class="app-row"><a class="btn upi-btn" data-app="Google Pay" data-pkg="com.google.android.apps.nbu.paisa.user" href="{{ apps.gpay }}">GPay</a><a class="btn upi-btn" data-app="PhonePe" data-pkg="com.phonepe.app" href="{{ apps.phonepe }}">PhonePe</a><a class="btn upi-btn" data-app="Paytm" data-pkg="net.one97.paytm" href="{{ apps.paytm }}">Paytm</a></div>
+  <p class="muted small">Amount and payee are filled in for you. Just enter your UPI PIN. <b>Your order stays saved</b>, so come back to this page after paying.</p>
 </div>
+<p id="appHint" class="pay-warn" hidden></p>
+<p id="backBanner" class="pickup" hidden>👋 Welcome back! If you've paid, type the reference / transaction ID below and press SUBMIT.</p>
 
 <div class="qr-box">
   <img src="{{ url_for('payment_qr', order_id=order.id, fmt='svg') }}" alt="UPI QR code for ₹{{ order.total_amount }}" width="240" height="240">
@@ -26,7 +27,7 @@
 <hr class="dash">
 <h3>AFTER PAYING</h3>
 <p class="muted">Enter the <strong>UPI reference / transaction ID</strong> shown in your payment app (the 12-digit UTR is best). Your token is issued once the stall confirms the payment.</p>
-<form id="famPaymentForm" class="form-card">
+<form id="famPaymentForm" data-order="{{ order.id }}" class="form-card">
   <input type="hidden" name="order_id" value="{{ order.id }}">
   <label>UPI reference / transaction ID
     <input name="payment_reference" required pattern="[A-Za-z0-9 ]{10,40}" maxlength="40" autocomplete="off" autocapitalize="characters" placeholder="e.g. 412345678901">

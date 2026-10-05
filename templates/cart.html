@@ -1,2 +1,11 @@
 {% extends "base.html" %}{% block title %}Cart · Steam Squad Momos{% endblock %}
-{% block content %}<section class="section narrow"><div class="section-head"><h1>YOUR CART</h1><a href="{{url_for('home')}}">← Menu</a></div><div id="cartArea"></div></section>{% endblock %}{% block scripts %}<script src="{{url_for('static',filename='js/cart.js')}}"></script>{% endblock %}
+{% block content %}<section class="section narrow"><div class="section-head"><h1>YOUR CART</h1><a href="{{ url_for('home') }}">← Menu</a></div>
+<div id="cartArea"></div>
+<div id="more" class="more" hidden>
+  <h2><span class="brush">ADD MORE?</span></h2><p class="muted">Last chance before you pay. Tap to add.</p>
+  <div class="dips">
+  {% for m in fries %}<div class="opt" data-item-id="{{ m.id }}" data-name="{{ m.name }}" data-variant="{{ m.variant }}" data-price="{{ m.price }}" data-pieces="0"><div class="opt-head"><svg class="v" style="color:var(--yellow)" aria-hidden="true"><use href="#i-fries"/></svg><span>{{ m.name }}</span><b>₹{{ m.price }}</b></div><div class="ctl"></div></div>{% endfor %}
+  {% for d in dips %}<div class="opt" data-dip-id="{{ d.id }}" data-name="{{ d.name }}" data-price="{{ d.price }}"><div class="opt-head"><svg class="v" style="color:var(--orange)" aria-hidden="true"><use href="#i-dip"/></svg><span>{{ d.name }}</span><b>₹{{ d.price }}</b></div><div class="ctl"></div></div>{% endfor %}
+  </div>
+</div></section>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/cart.js') }}"></script>{% endblock %}
