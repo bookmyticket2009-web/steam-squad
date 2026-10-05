@@ -34,3 +34,8 @@ The 2-minute deadline is stored on the server when you verify the payment and ch
 
 ## Deploy
 Use HTTPS (set `COOKIE_SECURE=1`). Run with `gunicorn -w 1 --threads 4 app:app`. Keep `.env` and `instance/` out of Git. Back up `instance/steam_squad.db` regularly. Keep the database on persistent disk. Free tiers that wipe disk on restart will delete your orders.
+
+## Security checklist
+- Set `COOKIE_SECURE=1`, `SECRET_KEY` and a strong admin password on the server. Never commit `.env`.
+- Built in: CSRF tokens, rate limits (login, checkout, payment, order lookup), CSP with per-request nonces, clickjacking protection, no-store caching on private pages, HSTS over HTTPS, 2-hour admin idle logout, login attempts written to `audit_logs`.
+- Turn on 2-factor login for your GitHub and Render accounts, and back up `instance/steam_squad.db`.

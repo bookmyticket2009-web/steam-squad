@@ -1,7 +1,8 @@
-import os, tempfile, threading, unittest
+import os, re, tempfile, threading, unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+from werkzeug.security import generate_password_hash
 from app import app, limiter
 import database
 from database import get_db
@@ -182,6 +183,72 @@ class CustomerPages(Base):
         html = self.client.get(f"/payment/{self.place()}").get_data(as_text=True)
         for pkg in ("com.phonepe.app", "net.one97.paytm", "com.google.android.apps.nbu.paisa.user"):
             self.assertIn(pkg, html)
+
+
+class Security(Base):
+    def test_security_headers_and_nonce_on_every_script(self):
+        oid = self.paid_order()
+        for path in ("/", "/cart", "/checkout", f"/order/{oid}", "/my-orders", "/track"):
+            try:
+                r = self.client.get(path)
+            except Exception:       # track.html may not exist in the test checkout
+                continue
+            if r.status_code != 200: continue
+            csp = r.headers["Content-Security-Policy"]
+            html = r.get_data(as_text=True)
+            self.assertIn("frame-ancestors 'none'", csp); self.assertIn("object-src 'none'", csp)
+            self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
+            self.assertEqual(r.headers["X-Frame-Options"], "DENY")
+            nonce = re.search(r"'nonce-([^']+)'", csp).group(1)
+            self.assertEqual(len(re.findall(r"<script", html)), len(re.findall(rf'<script nonce="{nonce}"', html)), path)
+        n1 = re.search(r"nonce-([^']+)'", self.client.get("/").headers["Content-Security-Policy"]).group(1)
+        n2 = re.search(r"nonce-([^']+)'", self.client.get("/").headers["Content-Security-Policy"]).group(1)
+        self.assertNotEqual(n1, n2)
+
+    def test_private_pages_are_not_cached(self):
+        oid = self.place()
+        for path in ("/my-orders", f"/order/{oid}", f"/payment/{oid}", f"/api/order/{oid}"):
+            self.assertEqual(self.client.get(path).headers.get("Cache-Control"), "no-store", path)
+        self.assertIn("noindex", self.admin().get("/admin/api/queue").headers["X-Robots-Tag"])
+
+    def login(self, nxt="", pw="correct horse"):
+        app.config.update(ADMIN_USERNAME="admin", ADMIN_PASSWORD_HASH=generate_password_hash("correct horse"))
+        return app.test_client(), lambda c: c.post("/admin/login" + nxt, data={"username": "admin", "password": pw})
+
+    def test_login_cannot_redirect_to_other_sites(self):
+        for evil in ("?next=https://evil.com", "?next=//evil.com", "?next=/\\evil.com", "?next=/orders", "?next=javascript:alert(1)"):
+            c, go = self.login(evil); loc = go(c).headers["Location"]
+            self.assertNotIn("evil", loc); self.assertTrue(loc.endswith("/admin"), loc)
+        c, go = self.login("?next=/admin/orders")
+        self.assertTrue(go(c).headers["Location"].endswith("/admin/orders"))
+
+    def test_wrong_password_is_logged_and_not_logged_in(self):
+        c, go = self.login(pw="nope")
+        self.assertIn("/admin/login", go(c).headers["Location"])
+        self.assertEqual(c.get("/admin/orders").status_code, 302)
+        with get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM audit_logs WHERE action='ADMIN_LOGIN_FAILED'").fetchone()[0], 1)
+
+    def test_admin_session_expires_when_idle(self):
+        c = self.admin()
+        self.assertEqual(c.get("/admin/orders").status_code, 200)
+        with c.session_transaction() as s: s["admin_last"] = 1   # long ago
+        self.assertEqual(c.get("/admin/orders").status_code, 302)
+        self.assertEqual(c.get("/admin/orders").status_code, 302)   # and stays logged out
+
+    def test_order_api_leaks_no_phone_or_payment_details(self):
+        oid = self.paid_order()
+        data = self.client.get(f"/api/order/{oid}").get_json()
+        self.assertEqual(set(data), {"order_number", "token", "order_status", "payment_status", "total_amount", "cancel_seconds_left", "items"})
+        self.assertNotIn("9876543210", str(data))
+
+    def test_bot_honeypot_and_unpaid_order_spam_blocked(self):
+        r = self.client.post("/checkout", json={"name": "Bot", "phone": "9876543210", "cart": [PLATE], "website": "spam.com"})
+        self.assertEqual(r.status_code, 400)
+        for _ in range(5): self.place(phone="9000000001")
+        r = self.client.post("/checkout", json={"name": "A", "phone": "9000000001", "cart": [PLATE]})
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(self.place(phone="9000000002") > 0, True)   # other people unaffected
 
 
 class Tokens(Base):

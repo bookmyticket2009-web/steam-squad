@@ -8,6 +8,7 @@ from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, abort, flash, Response
 from flask_wtf.csrf import CSRFProtect
+from security import init_security
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -30,6 +31,7 @@ if not app.config["SECRET_KEY"]:
         app.config["SECRET_KEY"] = secrets.token_hex(32)
         app.logger.warning("SECRET_KEY is not set: using a temporary key. Set SECRET_KEY in .env.")
 csrf = CSRFProtect(app)
+init_security(app)
 limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per minute"])
 init_database()
 
@@ -167,6 +169,7 @@ def my_orders():
     return render_template("my_orders.html", orders=orders)
 
 @app.route("/checkout", methods=["GET","POST"])
+@limiter.limit("20 per hour")
 def checkout():
     if request.method == "GET":
         return render_template("checkout.html")
@@ -177,6 +180,14 @@ def checkout():
             cart_data = json.loads(cart_data)
         if not fam_configured():
             return jsonify({"ok": False, "message": "Payments are not set up yet. Please ask the stall."}), 503
+        if data.get("website"):   # hidden field only bots fill in
+            return jsonify({"ok": False, "message": "Invalid order details."}), 400
+        since = (now_utc() - timedelta(minutes=30)).replace(microsecond=0).isoformat()
+        with get_db() as db:
+            unpaid = db.execute("SELECT COUNT(*) FROM orders o JOIN customers c ON c.id=o.customer_id WHERE c.phone=? AND o.order_status IN ('PAYMENT_PENDING','PAYMENT_FAILED') AND o.created_at>?",
+                                (re.sub(r"\D", "", str(data.get("phone", "")))[-10:], since)).fetchone()[0]
+        if unpaid >= 5:
+            return jsonify({"ok": False, "message": "You have several unpaid orders. Please finish paying for them first (My Orders)."}), 429
         order = create_order_from_cart(data.get("name",""), data.get("phone",""), cart_data, data.get("instructions",""))
         session.permanent = True
         session[f"order_access:{order['id']}"] = True
@@ -367,8 +378,15 @@ def order_api(order_id):
     order = get_order(order_id)
     if not order:
         return jsonify({"error":"Not found"}), 404
-    order["cancel_seconds_left"] = cancel_seconds(order)
-    return jsonify(order)
+    safe = {k: order[k] for k in ("order_number", "token", "order_status", "payment_status", "total_amount")}
+    safe["cancel_seconds_left"] = cancel_seconds(order)
+    safe["items"] = [{"name": i["item_name"], "quantity": i["quantity"], "subtotal": i["subtotal"]} for i in order["items"]]
+    return jsonify(safe)   # no phone number, no payment details
+
+def audit(action, actor, order_id=None):
+    with get_db() as db:
+        db.execute("INSERT INTO audit_logs(action,order_id,details,created_at,actor) VALUES(?,?,?,?,?)",
+                   (action, order_id, f"ip={request.remote_addr}", utcnow(), actor))
 
 @app.get("/admin/login")
 def admin_login():
@@ -381,7 +399,14 @@ def admin_login_post():
         session.clear()
         session["admin_authenticated"] = True
         session["admin_username"] = request.form["username"]
-        return redirect(request.args.get("next") or url_for("admin_dashboard"))
+        session["admin_last"] = int(datetime.now(timezone.utc).timestamp())
+        audit("ADMIN_LOGIN", request.form["username"])
+        target = request.args.get("next") or ""
+        # only allow local /admin... paths: stops "login then bounce to a fake site"
+        if not (target.startswith("/admin") and not target.startswith("//") and "\\" not in target):
+            target = url_for("admin_dashboard")
+        return redirect(target)
+    audit("ADMIN_LOGIN_FAILED", str(request.form.get("username", ""))[:40])
     flash("Invalid admin credentials.", "error")
     return redirect(url_for("admin_login"))
 

@@ -93,3 +93,5 @@ h1,h2,h3{overflow-wrap:anywhere}
 .myorder.st-paid,.myorder.st-accepted{border-left-color:#4da3ff}.myorder.st-preparing{border-left-color:var(--yellow)}.myorder.st-ready{border-left-color:var(--green);background:#12261a}.myorder.st-completed{opacity:.75}
 .myorder.st-cancelled,.myorder.st-refunded,.myorder.st-refund_requested{border-left-color:#a77bff}.myorder .btn{margin-top:10px}
 @media(max-width:700px){.cart-row .step{grid-area:qty;width:140px}}
+
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
