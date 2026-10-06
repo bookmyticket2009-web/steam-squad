@@ -18,6 +18,10 @@ class Config:
     # Name shown in the customer's UPI app while paying
     UPI_PAYEE_NAME = os.getenv("UPI_PAYEE_NAME", "Steam Squad Momos").strip()
 
+    # Bank-SMS auto verification (leave the secret empty to switch it off)
+    SMS_WEBHOOK_SECRET = os.getenv("SMS_WEBHOOK_SECRET", "").strip()
+    SMS_SENDER_CONTAINS = os.getenv("SMS_SENDER_CONTAINS", "").strip()   # e.g. "HDFCBK,SBIUPI": only these senders count
+
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
 

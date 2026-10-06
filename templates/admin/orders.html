@@ -12,6 +12,7 @@
   <div class="order-top"><b>₹{{ o.total_amount }}</b><span class="status paid">NEW</span></div>
   <p class="muted">{{ o.customer_name }} · {{ o.phone }} · {{ o.order_number }}</p>{{ items(o) }}
   <div class="fam-id">UTR {{ o.payment_id }}</div>
+  {% if sms_enabled %}{% if o.credit and o.credit.status == 'AMOUNT_MISMATCH' %}<p class="pay-warn">⚠ The bank SMS shows ₹{{ '%.2f' % (o.credit.amount_paise / 100) }} but this order is ₹{{ o.total_amount }}. Check before you verify.</p>{% elif not o.credit %}<p class="muted small">⏳ Not seen in the bank SMS yet. It verifies itself when the money arrives.</p>{% endif %}{% endif %}
   <div class="actions">
     <form class="ajax" method="post" action="{{ url_for('admin_verify_payment', order_id=o.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn success" type="submit">✓ VERIFY ₹{{ o.total_amount }}</button></form>
     <form class="ajax" method="post" action="{{ url_for('admin_reject_payment', order_id=o.id) }}" data-confirm="Reject this payment?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger" type="submit">REJECT</button></form>
@@ -19,7 +20,7 @@
 
 {% if orders %}<h2 class="q-title">IN PROGRESS · {{ orders|length }}</h2><div class="order-grid">
 {% for o in orders %}{% set s = o.order_status %}<div class="order-card st-{{ s|lower }}">
-  <div class="order-top"><span class="big-token">{{ o.token }}</span><b>₹{{ o.total_amount }}</b></div>
+  <div class="order-top"><span class="big-token">{{ o.token }}</span><b>₹{{ o.total_amount }}</b></div>{% if o.verified_by == 'system:sms' %}<span class="small">✓ auto-verified from bank SMS</span>{% endif %}
   <span class="status {{ s|lower }}">{{ s.replace('_',' ') }}</span>
   <p class="muted">{{ o.customer_name }} · {{ o.phone }}</p>{{ items(o) }}
   <div class="actions">

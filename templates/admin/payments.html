@@ -18,4 +18,18 @@
   <td>{{ r.payment_id or '—' }}</td>
   <td><span class="status {{ {'VERIFIED':'ready','SUBMITTED':'preparing','REJECTED':'cancelled'}.get(r.pstatus, '') }}">{{ {'VERIFIED':'VERIFIED','SUBMITTED':'WAITING','REJECTED':'REJECTED'}.get(r.pstatus, 'NO UTR YET') }}</span>{% if r.order_status in ['REFUND_REQUESTED','REFUNDED','CANCELLED'] %} <span class="status refunded">{{ r.order_status.replace('_',' ') }}</span>{% endif %}</td>
 </tr>{% else %}<tr><td colspan="7" class="center muted">No payments in this period.</td></tr>{% endfor %}
-</table></div></section>{% endblock %}
+</table></div>
+
+<h2 class="q-title">BANK SMS · AUTO-VERIFY {% if sms_enabled %}<span class="status ready">ON</span>{% else %}<span class="status cancelled">OFF</span>{% endif %}</h2>
+{% if sms_enabled %}<p class="muted small">Forward your bank's "credited" SMS to this address (POST): <code>{{ webhook_url }}</code> with your secret. Money that arrives with a matching UTR and exact amount verifies the order by itself.</p>
+{% else %}<p class="muted small">Switched off. Set <code>SMS_WEBHOOK_SECRET</code> on the server to turn it on (see README).</p>{% endif %}
+<form method="post" action="{{ url_for('admin_sms_test') }}" class="panel"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Test your bank's SMS: paste one here to see what the website understands<textarea name="text" required maxlength="1000" placeholder="Rs 99.00 credited to a/c XX1234 ... (UPI Ref No 412345678901)"></textarea></label>
+  <button class="btn" type="submit">CHECK THIS SMS</button></form>
+<div class="panel table-wrap"><table><tr><th>Received</th><th>UTR</th><th>Amount</th><th>Order</th><th>Result</th></tr>
+{% for c in credits %}<tr><td>{{ c.received_at|ist }}</td><td>{{ c.utr }}</td><td>₹{{ '%.2f' % (c.amount_paise / 100) }}</td>
+  <td>{% if c.order_id %}<a href="{{ url_for('admin_order_history', order_id=c.order_id) }}">{{ c.order_number }}</a>{% else %}—{% endif %}</td>
+  <td><span class="status {{ {'MATCHED':'ready','UNMATCHED':'preparing','AMOUNT_MISMATCH':'cancelled'}[c.status] }}">{{ {'MATCHED':'MATCHED','UNMATCHED':'NO ORDER YET','AMOUNT_MISMATCH':'WRONG AMOUNT'}[c.status] }}</span></td></tr>
+{% else %}<tr><td colspan="5" class="muted center">No bank credits received yet.</td></tr>{% endfor %}</table></div>
+{% if sms_events %}<p class="muted small">Recent messages the website ignored: {% for e in sms_events %}<br>{{ e.created_at|ist }}: {{ e.action.replace('SMS_','').replace('_',' ') }}: {{ e.details }}{% endfor %}</p>{% endif %}
+</section>{% endblock %}

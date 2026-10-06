@@ -1,3 +1,4 @@
+import hmac
 import json
 import os
 import re
@@ -10,6 +11,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, abort, flash, Response
 from flask_wtf.csrf import CSRFProtect
 from security import init_security
+from sms_parser import parse_credit_sms
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -284,8 +286,16 @@ def payment_submit():
             if not db.execute("SELECT 1 FROM payment_attempts WHERE order_id=? AND reference=? AND outcome='SUBMITTED'", (order_id, reference)).fetchone():
                 db.execute("INSERT INTO payment_attempts(order_id,reference,submitted_at,ip) VALUES(?,?,?,?)", (order_id, reference, now, request.remote_addr))
             record(db, order_id, "PAYMENT_SUBMITTED", "customer", f"reference {reference}", ip=request.remote_addr)
+            fresh = (now_utc() - timedelta(hours=6)).replace(microsecond=0).isoformat()   # old credits are never auto-matched
+            credit = db.execute("SELECT * FROM bank_credits WHERE utr=? AND status<>'MATCHED' AND received_at>?", (reference, fresh)).fetchone()
+            auto = False
+            if credit and credit["amount_paise"] == row["total_amount"] * 100:
+                auto = _verify_in_tx(db, order_id, "system:sms", via="bank SMS") is not None
+            elif credit:
+                db.execute("UPDATE bank_credits SET status='AMOUNT_MISMATCH', order_id=? WHERE id=?", (order_id, credit["id"]))
+                record(db, order_id, "SMS_AMOUNT_MISMATCH", "system:sms", f"bank received {credit['amount_paise'] / 100:.2f}, order is {row['total_amount']}")
             db.commit()
-        return jsonify({"ok": True, "message": "Payment submitted. Waiting for the stall to confirm it.", "redirect": url_for("order_page", order_id=order_id)})
+        return jsonify({"ok": True, "message": "Payment confirmed! Your token is ready." if auto else "Payment submitted. Waiting for the stall to confirm it.", "redirect": url_for("order_page", order_id=order_id)})
     except sqlite3.IntegrityError:
         return jsonify({"ok": False, "message": "This reference was already used for another order."}), 409
     except (ValueError, TypeError):
@@ -294,35 +304,96 @@ def payment_submit():
         app.logger.exception("Payment submission failed")
         return jsonify({"ok": False, "message": "Payment could not be submitted."}), 500
 
+def _verify_in_tx(db, order_id, actor, via="admin"):
+    """Mark a submitted payment as PAID and issue the token. Call inside BEGIN IMMEDIATE. Returns the token, or None."""
+    row = db.execute("SELECT o.*, p.payment_id, p.status pstatus FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=?", (order_id,)).fetchone()
+    if not row or row["pstatus"] != "SUBMITTED" or not row["payment_id"] or row["order_status"] != "PAYMENT_PENDING":
+        return None
+    now = now_utc()
+    token = assign_token(db, order_id, business_date())
+    db.execute("UPDATE orders SET payment_status='PAID', order_status='PAID', paid_at=?, cancellation_deadline=?, verified_by=? WHERE id=?",
+               (now.isoformat(), (now + timedelta(minutes=CANCEL_WINDOW_MINUTES)).isoformat(), actor, order_id))
+    db.execute("UPDATE payments SET status='VERIFIED', verified_at=? WHERE order_id=?", (now.isoformat(), order_id))
+    db.execute("UPDATE payment_attempts SET outcome='VERIFIED', decided_at=?, decided_by=? WHERE order_id=? AND reference=? AND outcome='SUBMITTED'",
+               (now.isoformat(), actor, order_id, row["payment_id"]))
+    db.execute("UPDATE bank_credits SET status='MATCHED', order_id=?, matched_at=? WHERE UPPER(utr)=? AND status<>'MATCHED'",
+               (order_id, now.isoformat(), row["payment_id"].upper()))
+    record(db, order_id, "PAYMENT_VERIFIED", actor, f"UTR {row['payment_id']} · Token {token} · via {via}", "PAYMENT_PENDING", "PAID")
+    return token
+
 @app.post("/admin/payments/<int:order_id>/verify")
 @admin_required
 def admin_verify_payment(order_id):
     actor = session.get("admin_username", "admin")
     with get_db() as db:
         # BEGIN IMMEDIATE takes the write lock first, so status check + token pick + update
-        # happen as one step. Two clicks or two admins can never get the same token.
+        # happen as one step. Two clicks, two admins, or an SMS arriving at the same moment can never double-issue.
         db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT o.*, p.payment_id, p.status pstatus FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=?", (order_id,)).fetchone()
-        if not row:
+        if not db.execute("SELECT 1 FROM orders WHERE id=?", (order_id,)).fetchone():
             abort(404)
-        if row["pstatus"] != "SUBMITTED" or not row["payment_id"] or row["order_status"] != "PAYMENT_PENDING":
+        token = _verify_in_tx(db, order_id, actor, via="admin")
+        if token is None:
             flash("Nothing to verify: no pending payment reference on this order.", "error")
             return redirect(url_for("admin_orders"))
-        now = now_utc()
-        deadline = now + timedelta(minutes=CANCEL_WINDOW_MINUTES)
-        token = assign_token(db, order_id, business_date())
-        db.execute("UPDATE orders SET payment_status='PAID', order_status='PAID', paid_at=?, cancellation_deadline=?, verified_by=? WHERE id=?",
-                   (now.isoformat(), deadline.isoformat(), actor, order_id))
-        db.execute("UPDATE payment_attempts SET outcome='VERIFIED', decided_at=?, decided_by=? WHERE order_id=? AND reference=? AND outcome='SUBMITTED'",
-                   (now.isoformat(), actor, order_id, row["payment_id"]))
-        db.execute("UPDATE payments SET status='VERIFIED', verified_at=? WHERE order_id=?", (now.isoformat(), order_id))
-        db.execute("INSERT INTO order_status_history(order_id,old_status,new_status,created_at,admin_username) VALUES(?,?,?,?,?)",
-                   (order_id, "PAYMENT_PENDING", "PAID", now.isoformat(), actor))
-        db.execute("INSERT INTO audit_logs(action,order_id,details,created_at,actor) VALUES(?,?,?,?,?)",
-                   ("PAYMENT_VERIFIED", order_id, f"UTR {row['payment_id']} · Token {token}", now.isoformat(), actor))
         db.commit()
     flash(f"Payment verified. Token {token} assigned.", "success")
     return redirect(url_for("admin_orders"))
+
+def _match_credit(db, credit_id, utr, amount_paise):
+    """A bank credit arrived: verify the order that sent this UTR, if the amount is exactly right."""
+    o = db.execute("""SELECT o.id, o.total_amount FROM orders o JOIN payments p ON p.order_id=o.id
+                      WHERE UPPER(p.payment_id)=? AND p.status='SUBMITTED' AND o.order_status='PAYMENT_PENDING'""", (utr,)).fetchone()
+    if not o:
+        return "UNMATCHED"
+    if amount_paise != o["total_amount"] * 100:
+        db.execute("UPDATE bank_credits SET status='AMOUNT_MISMATCH', order_id=? WHERE id=?", (o["id"], credit_id))
+        record(db, o["id"], "SMS_AMOUNT_MISMATCH", "system:sms", f"bank received {amount_paise / 100:.2f}, order is {o['total_amount']}")
+        return "AMOUNT_MISMATCH"
+    return "MATCHED" if _verify_in_tx(db, o["id"], "system:sms", via="bank SMS") else "UNMATCHED"
+
+@app.post("/api/bank-sms")
+@csrf.exempt
+@limiter.limit("120 per minute")
+def bank_sms():
+    """Called by the SMS-forwarding app on the stall phone. Protected by SMS_WEBHOOK_SECRET."""
+    secret = app.config.get("SMS_WEBHOOK_SECRET", "")
+    if not secret:
+        abort(404)                                           # feature switched off
+    given = request.headers.get("Authorization", "").removeprefix("Bearer ").strip() or request.headers.get("X-Webhook-Secret", "") or request.args.get("key", "")
+    if not hmac.compare_digest(given.encode(), secret.encode()):
+        with get_db() as db:
+            record(db, None, "SMS_BAD_SECRET", "unknown", "wrong or missing secret", ip=request.remote_addr)
+        return jsonify({"ok": False}), 401
+    data = request.get_json(silent=True) or request.form
+    sender = str(next((data[k] for k in ("from", "sender", "address", "number") if data.get(k)), ""))[:40]
+    text = str(next((data[k] for k in ("text", "message", "body", "content", "sms") if data.get(k)), ""))[:1000]
+    allowed = [x.strip().lower() for x in app.config.get("SMS_SENDER_CONTAINS", "").split(",") if x.strip()]
+    parsed, why = (None, f"sender {sender or '?'} is not in SMS_SENDER_CONTAINS") if allowed and not any(x in sender.lower() for x in allowed) else parse_credit_sms(text)
+    if not parsed:
+        with get_db() as db:
+            record(db, None, "SMS_IGNORED", "system:sms", why, ip=request.remote_addr)   # the message text itself is never stored
+        return jsonify({"ok": True, "ignored": why})
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if db.execute("SELECT 1 FROM bank_credits WHERE utr=?", (parsed["utr"],)).fetchone():
+            return jsonify({"ok": True, "duplicate": True})      # same SMS twice: nothing happens
+        cur = db.execute("INSERT INTO bank_credits(utr,amount_paise,sender,received_at) VALUES(?,?,?,?)",
+                         (parsed["utr"], parsed["amount_paise"], sender, utcnow()))
+        outcome = _match_credit(db, cur.lastrowid, parsed["utr"], parsed["amount_paise"])
+        record(db, None, "SMS_CREDIT", "system:sms", f"utr {parsed['utr']} amount {parsed['amount_paise'] / 100:.2f} -> {outcome}", ip=request.remote_addr)
+        db.commit()
+    return jsonify({"ok": True, "result": outcome})
+
+@app.post("/admin/sms-test")
+@admin_required
+def admin_sms_test():
+    """Paste a bank SMS to see what the parser reads from it. Nothing is saved."""
+    parsed, why = parse_credit_sms(request.form.get("text", ""))
+    if parsed:
+        flash(f"Understood: ₹{parsed['amount_paise'] / 100:.2f} credited, reference {parsed['utr']}. This message would work.", "success")
+    else:
+        flash(f"Not understood: {why}.", "error")
+    return redirect(url_for("admin_payments"))
 
 @app.post("/admin/payments/<int:order_id>/reject")
 @admin_required
@@ -491,9 +562,14 @@ def admin_orders():
     orders = sorted((o for o in everything if o["order_status"] in active), key=lambda o: o["id"])
     done = [o for o in everything if o["order_status"] not in active][:200]   # completed, cancelled, refunded
     queue = pending_payment_orders() if date == today else []
+    with get_db() as db:
+        for q in queue:   # what did the bank SMS say about this UTR?
+            c = db.execute("SELECT status, amount_paise FROM bank_credits WHERE UPPER(utr)=?", ((q["payment_id"] or "").upper(),)).fetchone()
+            q["credit"] = dict(c) if c else None
     for o in orders + done + queue:
         o["items"] = get_order(o["id"])["items"]
-    return render_template("admin/orders.html", orders=orders, done=done, queue=queue, date=date, today=today)
+    return render_template("admin/orders.html", orders=orders, done=done, queue=queue, date=date, today=today,
+                           sms_enabled=bool(app.config.get("SMS_WEBHOOK_SECRET")))
 
 @app.get("/admin/payments")
 @admin_required
@@ -510,10 +586,14 @@ def admin_payments():
     for r in rows:
         r["time"] = datetime.fromisoformat(r["created_at"]).astimezone(IST).strftime("%d %b, %I:%M %p")
     ok = [r for r in rows if r["pstatus"] == "VERIFIED"]
+    with get_db() as db:
+        credits = [dict(r) for r in db.execute("""SELECT c.*, o.order_number FROM bank_credits c LEFT JOIN orders o ON o.id=c.order_id ORDER BY c.id DESC LIMIT 50""").fetchall()]
+        sms_events = [dict(r) for r in db.execute("SELECT action, details, created_at FROM audit_logs WHERE action IN ('SMS_IGNORED','SMS_BAD_SECRET') ORDER BY id DESC LIMIT 8").fetchall()]
     totals = {"verified": len(ok), "amount": sum(r["total_amount"] for r in ok),
               "waiting": sum(1 for r in rows if r["pstatus"] == "SUBMITTED" and r["order_status"] == "PAYMENT_PENDING"),
               "rejected": sum(1 for r in rows if r["pstatus"] == "REJECTED")}
-    return render_template("admin/payments.html", rows=rows, totals=totals, days=days)
+    return render_template("admin/payments.html", rows=rows, totals=totals, days=days, credits=credits, sms_events=sms_events,
+                           sms_enabled=bool(app.config.get("SMS_WEBHOOK_SECRET")), webhook_url=request.url_root + "api/bank-sms")
 
 @app.template_filter("ist")
 def ist_filter(value):

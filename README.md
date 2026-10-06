@@ -46,3 +46,11 @@ Render's free plan wipes the project disk on every restart and deploy, so a SQLi
 2. Service → Disks → Add Disk: mount path `/var/data`.
 3. Add environment variable `DB_PATH=/var/data/steam_squad.db`, then redeploy.
 Until then, download a backup from Admin → Payments → "Backup database" at the end of each day.
+
+## Auto-verify payments from your bank SMS
+1. Set `SMS_WEBHOOK_SECRET` on the server (and optionally `SMS_SENDER_CONTAINS`, e.g. `HDFCBK`). Redeploy.
+2. On the phone that receives your bank's SMS, install an SMS-forwarding app that can call a web address.
+3. Configure it: **POST** to `https://YOUR-SITE/api/bank-sms`, header `Authorization: Bearer YOUR_SECRET` (if the app cannot set headers, use `?key=YOUR_SECRET` on the address), body `{"from":"<sender>","text":"<message>"}` (use the app's own placeholders). Forward **only** messages from your bank.
+4. Admin → Payments → paste one real SMS into "Test your bank's SMS" to confirm it is understood.
+5. Place a ₹99 test order, pay it, and enter the UTR. It should confirm by itself within seconds.
+If the secret is empty the feature is off and you keep verifying by hand. Always compare with your bank statement at the end of the day.

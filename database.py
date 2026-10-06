@@ -151,6 +151,16 @@ CREATE TABLE IF NOT EXISTS stock_log (
     actor TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bank_credits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    utr TEXT NOT NULL UNIQUE,
+    amount_paise INTEGER NOT NULL,
+    sender TEXT,
+    received_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'UNMATCHED',   -- UNMATCHED, MATCHED, AMOUNT_MISMATCH
+    order_id INTEGER,
+    matched_at TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_stocklog_order ON stock_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_ref ON payment_attempts(reference);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(order_status);
