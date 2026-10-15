@@ -13,7 +13,16 @@ try:
 except ImportError:
     HAVE_SEGNO = False
 
-PLATE = {"item_id": 1, "quantity": 1}  # Steam Veg, Rs 99
+PLATE = {"item_id": 1, "quantity": 1}  # Veg Momos, Rs 99
+
+
+def item_id(name, variant):
+    with get_db() as db:
+        return db.execute("SELECT id FROM menu_items WHERE name=? AND variant=?", (name, variant)).fetchone()["id"]
+
+
+def PPV():   # Peri Peri Momos, Veg (Rs 119)
+    return item_id("Peri Peri Momos", "Veg")
 
 
 class Base(unittest.TestCase):
@@ -22,7 +31,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.NamedTemporaryFile(delete=False); self.tmp.close()
         database.DB_PATH = self.tmp.name
         database.init_database()
-        app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, FAM_ID="steamsquad@fam")
+        app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, FAM_ID="steamsquad@fam", SMS_WEBHOOK_SECRET="", SMS_SENDER_CONTAINS="")
         limiter.enabled = False
         self.utr = 100000000000
         self.client = app.test_client()
@@ -157,7 +166,7 @@ class Menu(Base):
         with get_db() as db: db.execute("DELETE FROM menu_items WHERE category='Fries'")
         database.init_database(); database.init_database()
         with get_db() as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 13)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 11)
             prices = [r[0] for r in db.execute("SELECT price FROM menu_items WHERE category='Fries' ORDER BY id")]
         self.assertEqual(prices, [79, 99, 129])
 
@@ -169,7 +178,7 @@ class Menu(Base):
 class CustomerPages(Base):
     def test_cart_page_offers_extras(self):
         html = self.client.get("/cart").get_data(as_text=True)
-        self.assertIn("ADD MORE", html); self.assertIn("Cheese Sauce", html); self.assertIn("Salted Fries", html)
+        self.assertIn("ADD MORE", html); self.assertIn(">Cheese<", html.replace("</span>","<").replace("<span>",">")); self.assertIn("Salted Fries", html)
 
     def test_my_orders_only_shows_this_browsers_orders(self):
         oid = self.place(); self.submit(oid)
@@ -305,25 +314,25 @@ class FryOption(Base):
             return [tuple(r) for r in db.execute("SELECT item_name,unit_price,quantity,cooking FROM order_items WHERE order_id=? ORDER BY id", (oid,))]
 
     def test_fry_adds_10_per_plate_and_is_priced_by_server(self):
-        oid = self.place(cart=[{"item_id": 5, "quantity": 2, "fry": True, "price": 1},   # Peri Peri Veg 119
-                               {"item_id": 5, "quantity": 1},                             # same plate, steamed
+        oid = self.place(cart=[{"item_id": PPV(), "quantity": 2, "fry": True, "price": 1},   # Peri Peri Veg 119
+                               {"item_id": PPV(), "quantity": 1},                             # same plate, steamed
                                {"item_id": 1, "quantity": 1, "fry": True},                # Steam Veg 99 -> Fry Momos 109
                                {"item_id": 1, "quantity": 1}])
         self.assertEqual(self.row(oid)["total_amount"], 129 * 2 + 119 + 109 + 99)
         self.assertEqual(self.lines(oid), [("Peri Peri Momos - Veg (Fry)", 129, 2, "Fry"), ("Peri Peri Momos - Veg (Steam)", 119, 1, "Steam"),
-                                           ("Fry Momos - Veg", 109, 1, "Fry"), ("Steam Momos - Veg", 99, 1, "Steam")])
+                                           ("Veg Momos (Fry)", 109, 1, "Fry"), ("Veg Momos (Steam)", 99, 1, "Steam")])
 
     def test_fry_option_rejected_where_it_makes_no_sense(self):
         with get_db() as db:
             fries = db.execute("SELECT id FROM menu_items WHERE category='Fries'").fetchone()["id"]
-        for iid in (fries, 3):   # fries, and the old already-fried "Fry Momos" item
+        for iid in (fries,):   # fries cannot be fried
             r = self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [{"item_id": iid, "quantity": 1, "fry": True}]})
             self.assertEqual(r.status_code, 400)
 
     def test_dashboard_counts_fried_plates(self):
         from app import business_date
         from models import dashboard_stats
-        oid = self.place(cart=[{"item_id": 1, "quantity": 2, "fry": True}, {"item_id": 5, "quantity": 1, "fry": True}, {"item_id": 5, "quantity": 1}])
+        oid = self.place(cart=[{"item_id": 1, "quantity": 2, "fry": True}, {"item_id": PPV(), "quantity": 1, "fry": True}, {"item_id": PPV(), "quantity": 1}])
         self.submit(oid); self.admin().post(f"/admin/payments/{oid}/verify")
         st = dashboard_stats(business_date())
         self.assertEqual((st["categories"].get("Fry"), st["categories"].get("Peri Peri"), st["fried"]), (2, 2, 3))
@@ -343,7 +352,7 @@ class FullRecord(Base):
 
     def test_every_step_is_recorded(self):
         adm = self.admin()
-        oid = self.place(cart=[{"item_id": 5, "quantity": 1, "fry": True}])
+        oid = self.place(cart=[{"item_id": PPV(), "quantity": 1, "fry": True}])
         o = self.row(oid)
         self.assertTrue(o["created_ip"]); self.assertIn("order", " ".join(a["action"] for a in self.q("SELECT action FROM audit_logs WHERE order_id=?", oid)).lower())
         self.assertEqual(self.q("SELECT old_status,new_status,admin_username FROM order_status_history WHERE order_id=?", oid)[0],
@@ -395,7 +404,7 @@ class FullRecord(Base):
     def test_menu_changes_and_lookups_are_logged(self):
         self.admin().post("/admin/menu/1/toggle", data={"available": "0"}); self.admin().post("/admin/dips/1/toggle", data={"available": "0"})
         d = [a["details"] for a in self.q("SELECT details FROM audit_logs WHERE action='MENU_AVAILABILITY'")]
-        self.assertTrue(any("Steam Momos Veg: SOLD OUT" in x for x in d) and any("Cheese Sauce: SOLD OUT" in x for x in d), d)
+        self.assertTrue(any("Veg Momos: SOLD OUT" in x for x in d) and any("Cheese: SOLD OUT" in x for x in d), d)
         self.admin().post("/admin/menu/1/toggle", data={"available": "1"})   # back on sale
         self.paid_order(); c = app.test_client()
         c.post("/track", json={"phone": "9876543210", "token": "SS-001"}); c.post("/track", json={"phone": "9876543210", "token": "SS-999"})
@@ -403,7 +412,7 @@ class FullRecord(Base):
         self.assertTrue({"ORDER_LOOKUP", "ORDER_LOOKUP_FAILED"} <= got)
 
     def test_history_page_and_csv_export(self):
-        oid = self.place(cart=[{"item_id": 5, "quantity": 1, "fry": True}], phone="9876543210"); self.submit(oid, "555555555555"); adm = self.admin()
+        oid = self.place(cart=[{"item_id": PPV(), "quantity": 1, "fry": True}], phone="9876543210"); self.submit(oid, "555555555555"); adm = self.admin()
         adm.post(f"/admin/payments/{oid}/verify")
         html = adm.get(f"/admin/orders/{oid}/history").get_data(as_text=True)
         for needle in ("555555555555", "PAYMENT_VERIFIED", "Peri Peri Momos - Veg (Fry)", "STATUS TIMELINE", "9876543210"): self.assertIn(needle, html)
@@ -426,14 +435,17 @@ class FullRecord(Base):
 class Stock(Base):
     PP = 5   # Peri Peri Veg
 
-    def setstock(self, n, kind="menu", iid=5):
+    def setstock(self, n, kind="menu", iid=None):
+        iid = iid or PPV()
         r = self.admin().post(f"/admin/stock/{kind}/{iid}", data={"action": "set", "amount": str(n)})
         self.assertEqual(r.status_code, 302)
 
-    def left(self, kind="menu", iid=5):
+    def left(self, kind="menu", iid=None):
+        iid = iid or PPV()
         with get_db() as db: return db.execute(f"SELECT stock FROM {'dips' if kind == 'dip' else 'menu_items'} WHERE id=?", (iid,)).fetchone()[0]
 
-    def order(self, qty, fry=False, iid=5, phone="9876543210", client=None):
+    def order(self, qty, fry=False, iid=None, phone="9876543210", client=None):
+        iid = iid or PPV()
         return (client or self.client).post("/checkout", json={"name": "A", "phone": phone, "cart": [{"item_id": iid, "quantity": qty, "fry": fry}]})
 
     def log(self, **w):
@@ -451,7 +463,7 @@ class Stock(Base):
     def test_cannot_order_more_than_left_and_stock_unchanged(self):
         self.setstock(2); r = self.order(3)
         self.assertEqual(r.status_code, 400); self.assertIn("Only 2 left", r.get_json()["message"]); self.assertEqual(self.left(), 2)
-        r = self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [{"item_id": 5, "quantity": 2, "fry": True}, {"item_id": 5, "quantity": 1}]})
+        r = self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [{"item_id": PPV(), "quantity": 2, "fry": True}, {"item_id": PPV(), "quantity": 1}]})
         self.assertEqual(r.status_code, 400)   # fry + steam lines of the same item count together
         with get_db() as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
 
@@ -473,20 +485,20 @@ class Stock(Base):
 
     def test_counter_sale_restock_set_and_untrack(self):
         adm = self.admin(); self.setstock(2)
-        adm.post("/admin/stock/menu/5", data={"action": "counter", "amount": "1"}); self.assertEqual(self.left(), 1)
-        adm.post("/admin/stock/menu/5", data={"action": "counter", "amount": "1"}); adm.post("/admin/stock/menu/5", data={"action": "counter", "amount": "1"})
+        adm.post(f"/admin/stock/menu/{PPV()}", data={"action": "counter", "amount": "1"}); self.assertEqual(self.left(), 1)
+        adm.post(f"/admin/stock/menu/{PPV()}", data={"action": "counter", "amount": "1"}); adm.post(f"/admin/stock/menu/{PPV()}", data={"action": "counter", "amount": "1"})
         self.assertEqual(self.left(), 0)                                  # never below zero
-        adm.post("/admin/stock/menu/5", data={"action": "add", "amount": "10"}); self.assertEqual(self.left(), 10)
-        adm.post("/admin/stock/menu/5", data={"action": "set", "amount": "abc"}); adm.post("/admin/stock/menu/5", data={"action": "set", "amount": "-4"}); self.assertEqual(self.left(), 10)
+        adm.post(f"/admin/stock/menu/{PPV()}", data={"action": "add", "amount": "10"}); self.assertEqual(self.left(), 10)
+        adm.post(f"/admin/stock/menu/{PPV()}", data={"action": "set", "amount": "abc"}); adm.post(f"/admin/stock/menu/{PPV()}", data={"action": "set", "amount": "-4"}); self.assertEqual(self.left(), 10)
         self.assertEqual([(l["reason"], l["change"], l["actor"]) for l in self.log()][:3], [("SET", 2, "admin"), ("COUNTER_SALE", -1, "admin"), ("COUNTER_SALE", -1, "admin")])
-        adm.post("/admin/stock/menu/5", data={"action": "untrack"}); self.assertIsNone(self.left())
+        adm.post(f"/admin/stock/menu/{PPV()}", data={"action": "untrack"}); self.assertIsNone(self.left())
         self.assertEqual(adm.post("/admin/stock/hack/5", data={"action": "set", "amount": "1"}).status_code, 404)
-        self.assertEqual(app.test_client().post("/admin/stock/menu/5", data={"action": "set", "amount": "99"}).status_code, 302); self.assertIsNone(self.left())
+        self.assertEqual(app.test_client().post(f"/admin/stock/menu/{PPV()}", data={"action": "set", "amount": "99"}).status_code, 302); self.assertIsNone(self.left())
 
     def test_dips_have_stock_too(self):
         self.setstock(1, "dip", 1)
         r = self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [PLATE, {"dip_id": 1, "quantity": 2}]})
-        self.assertEqual(r.status_code, 400); self.assertIn("Cheese Sauce", r.get_json()["message"])
+        self.assertEqual(r.status_code, 400); self.assertIn("Cheese", r.get_json()["message"])
         self.assertEqual(self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [PLATE, {"dip_id": 1, "quantity": 1}]}).status_code, 200)
         self.assertEqual(self.left("dip", 1), 0)
 
@@ -536,6 +548,242 @@ class Stock(Base):
     def test_old_database_gets_stock_columns(self):
         with get_db() as db: db.execute("ALTER TABLE menu_items DROP COLUMN stock"); db.execute("ALTER TABLE dips DROP COLUMN stock"); db.execute("DROP TABLE stock_log")
         database.init_database(); self.setstock(3); self.assertEqual(self.left(), 3)
+
+
+SAMPLES = [   # (sms, amount in paise, utr)
+    ("Rs. 99.00 credited to a/c XXXXXX1234 on 05-10-26 by VPA asha@okaxis (UPI Ref No 412345678901)", 9900, "412345678901"),
+    ("Dear UPI user A/C X1234 credited by Rs99.00 on 05Oct26 trf from ASHA Ref No 412345678902", 9900, "412345678902"),
+    ("INR 129.00 credited to A/c no. XX1234 on 05-10-26 05:55:55 IST. UPI/P2A/412345678903/ASHA - Axis Bank", 12900, "412345678903"),
+    ("Acct XX123 is credited with Rs 149.00 on 05-Oct-26 from ASHA. UPI:412345678904. Call 18002662 for dispute", 14900, "412345678904"),
+    ("Received Rs.159.00 in your Kotak Bank AC X1234 from asha@ybl on 05-10-26.UPI Ref:412345678905.", 15900, "412345678905"),
+    ("Rs 99.00 credited to a/c XX1234 (UPI Ref No 412345678906). Avl Bal Rs 12,345.67", 9900, "412345678906"),
+    ("Avl Bal Rs 5000.00. Rs 99.00 credited to a/c XX1234 UPI Ref 412345678907", 9900, "412345678907"),
+    ("Rs 1,299.50 credited to a/c XX1234 UPI Ref 412345678908", 129950, "412345678908"),
+    ("₹119 credited to your account. UTR 412345678909", 11900, "412345678909"),
+]
+
+
+class SmsParser(unittest.TestCase):
+    def test_common_bank_formats(self):
+        from sms_parser import parse_credit_sms
+        for sms, paise, utr in SAMPLES:
+            got, why = parse_credit_sms(sms)
+            self.assertEqual(got, {"amount_paise": paise, "utr": utr}, f"{sms} -> {why}")
+
+    def test_things_that_must_be_ignored(self):
+        from sms_parser import parse_credit_sms
+        for sms in ("Rs 99.00 debited from a/c XX1234 on 05-10-26 UPI Ref No 412345678901", "123456 is your OTP. Do not share.",
+                    "Rs 99 credited to a/c XX1234", "Get 50% off recharge! Rs 99 only", "", None,
+                    "Rs 99 debited. Rs 99 credited to Ravi. UPI Ref 412345678901"):
+            self.assertIsNone(parse_credit_sms(sms)[0], sms)
+
+
+class BankSms(Base):
+    SECRET = "test-secret-value-123"
+    OK = "Rs. 99.00 credited to a/c XXXXXX1234 on 05-10-26 by VPA asha@okaxis (UPI Ref No {utr})"
+
+    def setUp(self):
+        super().setUp(); app.config["SMS_WEBHOOK_SECRET"] = self.SECRET
+
+    def sms(self, text, sender="VM-HDFCBK", secret=None, client=None, how="bearer"):
+        c = client or app.test_client(); secret = self.SECRET if secret is None else secret
+        kw = {"json": {"from": sender, "text": text}}
+        if how == "bearer": kw["headers"] = {"Authorization": f"Bearer {secret}"}
+        elif how == "header": kw["headers"] = {"X-Webhook-Secret": secret}
+        else: kw["query_string"] = {"key": secret}
+        return c.post("/api/bank-sms", **kw)
+
+    def credit(self, utr="412345678901"):
+        with get_db() as db:
+            r = db.execute("SELECT * FROM bank_credits WHERE utr=?", (utr,)).fetchone(); return dict(r) if r else None
+
+    def test_switched_off_and_wrong_secret(self):
+        app.config["SMS_WEBHOOK_SECRET"] = ""
+        self.assertEqual(self.sms(self.OK.format(utr="412345678901"), secret="").status_code, 404)
+        app.config["SMS_WEBHOOK_SECRET"] = self.SECRET
+        for bad in ("", "wrong", self.SECRET + "x"):
+            self.assertEqual(self.sms(self.OK.format(utr="412345678901"), secret=bad or "-").status_code, 401)
+        self.assertIsNone(self.credit())                                   # nothing was saved
+        for how in ("bearer", "header", "query"): self.assertEqual(self.sms("hello", how=how).status_code, 200)
+
+    def test_customer_pays_first_then_sms_arrives_and_order_verifies_itself(self):
+        oid = self.place(); self.submit(oid, "412345678901")
+        self.assertEqual(self.row(oid)["order_status"], "PAYMENT_PENDING")
+        r = self.sms(self.OK.format(utr="412345678901"))
+        self.assertEqual(r.get_json(), {"ok": True, "result": "MATCHED"})
+        o = self.row(oid); self.assertEqual((o["order_status"], o["token"], o["verified_by"]), ("PAID", "SS-001", "system:sms"))
+        c = self.credit(); self.assertEqual((c["status"], c["order_id"]), ("MATCHED", oid))
+        with get_db() as db:
+            self.assertEqual(db.execute("SELECT outcome,decided_by FROM payment_attempts WHERE order_id=?", (oid,)).fetchone()[:], ("VERIFIED", "system:sms"))
+            self.assertIn("bank SMS", db.execute("SELECT details FROM audit_logs WHERE action='PAYMENT_VERIFIED'").fetchone()[0])
+        self.assertIn("SS-001", self.client.get(f"/order/{oid}").get_data(as_text=True))
+
+    def test_sms_first_then_customer_submits_and_is_confirmed_instantly(self):
+        oid = self.place(); self.sms(self.OK.format(utr="412345678901"))
+        self.assertEqual(self.credit()["status"], "UNMATCHED")
+        r = self.submit(oid, "412345678901"); self.assertIn("confirmed", r.get_json()["message"])
+        o = self.row(oid); self.assertEqual((o["order_status"], o["verified_by"]), ("PAID", "system:sms"))
+        self.assertEqual(self.credit()["status"], "MATCHED")
+
+    def test_wrong_amount_never_auto_verifies(self):
+        oid = self.place(cart=[{"item_id": PPV(), "quantity": 1}])               # Rs 119
+        self.submit(oid, "412345678901"); self.sms(self.OK.format(utr="412345678901"))   # bank got only 99
+        self.assertEqual(self.row(oid)["order_status"], "PAYMENT_PENDING"); self.assertEqual(self.credit()["status"], "AMOUNT_MISMATCH")
+        html = self.admin().get("/admin/orders").get_data(as_text=True); self.assertIn("The bank SMS shows ₹99.00 but this order is ₹119", html)
+        self.assertEqual(self.admin().post(f"/admin/payments/{oid}/verify").status_code, 302)   # admin may still decide
+        self.assertEqual(self.row(oid)["verified_by"], "admin")
+
+    def test_wrong_amount_when_sms_arrives_first(self):
+        oid = self.place(cart=[{"item_id": PPV(), "quantity": 1}]); self.sms(self.OK.format(utr="412345678901"))
+        self.submit(oid, "412345678901"); self.assertEqual(self.row(oid)["order_status"], "PAYMENT_PENDING"); self.assertEqual(self.credit()["status"], "AMOUNT_MISMATCH")
+
+    def test_same_sms_twice_gives_one_token(self):
+        oid = self.place(); self.submit(oid, "412345678901")
+        self.sms(self.OK.format(utr="412345678901")); r = self.sms(self.OK.format(utr="412345678901"))
+        self.assertTrue(r.get_json()["duplicate"])
+        with get_db() as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM bank_credits").fetchone()[0], 1)
+        self.assertEqual(self.row(oid)["token"], "SS-001")
+
+    def test_a_fake_utr_never_gets_a_token(self):
+        oid = self.place(); self.submit(oid, "999999999999")                   # made up: no bank credit exists
+        self.sms(self.OK.format(utr="412345678901"))                           # some other real payment
+        self.assertEqual(self.row(oid)["order_status"], "PAYMENT_PENDING"); self.assertIsNone(self.row(oid)["token"])
+
+    def test_one_real_payment_cannot_pay_two_orders(self):
+        a, b = self.place(), self.place(phone="9123456780")
+        self.sms(self.OK.format(utr="412345678901")); self.assertEqual(self.submit(a, "412345678901").status_code, 200)
+        self.assertEqual(self.row(a)["order_status"], "PAID")
+        self.assertEqual(self.submit(b, "412345678901").status_code, 409); self.assertEqual(self.row(b)["order_status"], "PAYMENT_PENDING")
+
+    def test_old_credit_is_not_auto_matched(self):
+        oid = self.place(); self.sms(self.OK.format(utr="412345678901"))
+        old = (datetime.now(timezone.utc) - timedelta(hours=7)).replace(microsecond=0).isoformat()
+        with get_db() as db: db.execute("UPDATE bank_credits SET received_at=?", (old,))
+        self.submit(oid, "412345678901"); self.assertEqual(self.row(oid)["order_status"], "PAYMENT_PENDING")
+
+    def test_non_credit_and_unknown_senders_are_ignored(self):
+        self.assertIn("debit", self.sms("Rs 99.00 debited from a/c XX1234 UPI Ref No 412345678901").get_json()["ignored"])
+        self.assertIn("not a credit", self.sms("Your OTP is 123456").get_json()["ignored"])
+        app.config["SMS_SENDER_CONTAINS"] = "HDFCBK,SBIUPI"
+        self.assertIn("not in SMS_SENDER_CONTAINS", self.sms(self.OK.format(utr="412345678901"), sender="+919999999999").get_json()["ignored"])
+        self.assertIsNone(self.credit())
+        self.assertEqual(self.sms(self.OK.format(utr="412345678901"), sender="VM-HDFCBK").get_json()["result"], "UNMATCHED")
+        with get_db() as db: self.assertGreaterEqual(db.execute("SELECT COUNT(*) FROM audit_logs WHERE action='SMS_IGNORED'").fetchone()[0], 3)
+
+    def test_message_text_is_never_stored(self):
+        self.sms("Rs. 99.00 credited to a/c XXXXXX1234 UPI Ref No 412345678901. Avl Bal Rs 88,888.88")
+        with get_db() as db:
+            blob = " ".join(str(v) for t in ("bank_credits", "audit_logs") for r in db.execute(f"SELECT * FROM {t}") for v in tuple(r))
+        self.assertNotIn("88,888", blob); self.assertNotIn("XXXXXX1234", blob)
+
+    def test_expired_order_is_not_resurrected_by_an_sms(self):
+        oid = self.place(); self.submit(oid, "412345678901")
+        with get_db() as db: db.execute("UPDATE orders SET order_status='CANCELLED' WHERE id=?", (oid,))
+        self.assertEqual(self.sms(self.OK.format(utr="412345678901")).get_json()["result"], "UNMATCHED")
+        self.assertEqual(self.row(oid)["order_status"], "CANCELLED")
+        html = self.admin().get("/admin/payments").get_data(as_text=True); self.assertIn("NO ORDER YET", html)
+
+    def test_race_between_customer_submit_and_sms_gives_exactly_one_token(self):
+        for i in range(6):
+            utr = f"41234567{i:04d}"; oid = self.place(phone=f"98765432{i:02d}")
+            bar = threading.Barrier(2)
+            def a(): bar.wait(); self.submit(oid, utr, client=self.client)
+            def b(): bar.wait(); self.sms(self.OK.format(utr=utr))
+            ts = [threading.Thread(target=a), threading.Thread(target=b)]; [t.start() for t in ts]; [t.join() for t in ts]
+            o = self.row(oid); self.assertEqual((o["order_status"], o["token"]), ("PAID", f"SS-{i + 1:03d}"), i)
+            self.assertEqual(self.credit(utr)["status"], "MATCHED")
+
+    def test_admin_pages_show_credits_and_the_sms_tester(self):
+        adm = self.admin(); self.sms(self.OK.format(utr="412345678901"))
+        html = adm.get("/admin/payments").get_data(as_text=True)
+        for needle in ("BANK SMS", "412345678901", "₹99.00", "NO ORDER YET", "CHECK THIS SMS", "/api/bank-sms"): self.assertIn(needle, html)
+        self.assertEqual(app.test_client().post("/admin/sms-test", data={"text": "x"}).status_code, 302)
+        r = adm.post("/admin/sms-test", data={"text": SAMPLES[0][0]}, follow_redirects=True); self.assertIn("Understood: ₹99.00", r.get_data(as_text=True))
+        r = adm.post("/admin/sms-test", data={"text": "hello"}, follow_redirects=True); self.assertIn("Not understood", r.get_data(as_text=True))
+        app.config["SMS_WEBHOOK_SECRET"] = ""; self.assertIn("Switched off", adm.get("/admin/payments").get_data(as_text=True))
+
+    def test_auto_verified_order_is_labelled_for_the_admin(self):
+        oid = self.place(); self.submit(oid, "412345678901"); self.sms(self.OK.format(utr="412345678901"))
+        self.assertIn("auto-verified from bank SMS", self.admin().get("/admin/orders").get_data(as_text=True))
+
+
+POSTER = {("Veg Momos", "Veg"): 99, ("Paneer Momos", "Paneer"): 109, ("Peri Peri Momos", "Veg"): 119, ("Peri Peri Momos", "Paneer"): 149,
+          ("Tandoori Momos", "Veg"): 119, ("Tandoori Momos", "Paneer"): 149, ("Cheese Loaded Momos", "Veg"): 129, ("Cheese Loaded Momos", "Paneer"): 159}
+POSTER_FRIES = {"Salted Fries": 79, "Peri Peri Fries": 99, "Cheesy Fries": 129}
+
+
+class FinalMenu(Base):
+    """The website must match the printed menu poster exactly."""
+    def test_database_has_exactly_the_poster_menu(self):
+        with get_db() as db:
+            got = {(r["name"], r["variant"]): r["price"] for r in db.execute("SELECT * FROM menu_items WHERE category<>'Fries'")}
+            fries = {r["name"]: r["price"] for r in db.execute("SELECT * FROM menu_items WHERE category='Fries'")}
+            pieces = {r[0] for r in db.execute("SELECT pieces FROM menu_items WHERE category<>'Fries'")}
+            dips = [(r["name"], r["price"]) for r in db.execute("SELECT * FROM dips ORDER BY id")]
+        self.assertEqual(got, POSTER); self.assertEqual(fries, POSTER_FRIES); self.assertEqual(pieces, {8})
+        self.assertEqual(dips, [("Cheese", 10), ("Schezwan Sauce", 10), ("Tandoori Sauce", 10), ("Peri Peri Sauce", 10)])
+
+    def test_every_item_is_charged_the_poster_price_and_fry_is_plus_10(self):
+        n = 0
+        for (name, variant), price in POSTER.items():
+            for fry in (False, True):
+                n += 1
+                oid = self.place(cart=[{"item_id": item_id(name, variant), "quantity": 2, "fry": fry}], phone=f"90000{n:05d}")
+                self.assertEqual(self.row(oid)["total_amount"], (price + (10 if fry else 0)) * 2, (name, variant, fry))
+        for name, price in POSTER_FRIES.items():
+            n += 1
+            oid = self.place(cart=[{"item_id": item_id(name, "Regular"), "quantity": 1}], phone=f"91000{n:05d}")
+            self.assertEqual(self.row(oid)["total_amount"], price)
+        oid = self.place(cart=[PLATE, {"dip_id": 3, "quantity": 3}], phone="9200000001")
+        self.assertEqual(self.row(oid)["total_amount"], 99 + 30)
+
+    def test_menu_page_follows_the_poster(self):
+        html = self.client.get("/").get_data(as_text=True)
+        for needle in ("VEG MOMOS", "PANEER MOMOS", "PERI PERI MOMOS", "TANDOORI MOMOS", "CHEESE LOADED MOMOS", "SALTED FRIES", "PERI PERI FRIES", "CHEESY FRIES",
+                       "Fresh, classic, and packed with flavor.", "Rich, flavorful, and delicious.", "Spicy. Tangy. Addictive.", "Smoky flavour, full of taste.", "More cheese. More happiness.",
+                       "There will be ₹10 extra charge for fry momos in all the types", "Schezwan Sauce", "Momos + Friends = Perfect Day", "dish-veg.jpg", "dish-cheesy-fries.jpg"):
+            self.assertIn(needle, html)
+        for price in ("₹99", "₹109", "₹119", "₹149", "₹129", "₹159", "₹79"): self.assertIn(price, html)
+        self.assertNotIn("Steam Momos", html); self.assertNotIn("FRY MOMOS", html); self.assertNotIn("₹139", html)
+        self.assertEqual(html.count('class="pick"'), 8)
+
+    def test_page_still_works_without_the_dish_pictures(self):
+        with mock.patch.dict(app.jinja_env.globals, {"dish_img": lambda key: None}):
+            html = self.client.get("/").get_data(as_text=True)
+        self.assertNotIn("dish-veg.jpg", html); self.assertIn("#i-momo", html)
+
+    def test_order_lines_are_named_like_the_menu(self):
+        oid = self.place(cart=[{"item_id": item_id("Paneer Momos", "Paneer"), "quantity": 1, "fry": True}, {"item_id": item_id("Cheese Loaded Momos", "Paneer"), "quantity": 1}])
+        with get_db() as db:
+            names = [r[0] for r in db.execute("SELECT item_name FROM order_items WHERE order_id=? ORDER BY id", (oid,))]
+        self.assertEqual(names, ["Paneer Momos (Fry)", "Cheese Loaded Momos - Paneer (Steam)"])
+        self.assertEqual(self.row(oid)["total_amount"], 119 + 159)
+
+    def test_older_database_is_upgraded_once_and_old_orders_survive(self):
+        with get_db() as db:   # rebuild what the previous version of the menu looked like
+            db.execute("DELETE FROM app_meta")
+            db.execute("UPDATE menu_items SET name='Steam Momos' WHERE name IN ('Veg Momos','Paneer Momos')")
+            db.execute("UPDATE menu_items SET price=129 WHERE name='Steam Momos' AND variant='Paneer'")
+            db.execute("INSERT INTO menu_items(name,category,variant,pieces,price) VALUES ('Fry Momos','Fry','Veg',8,109),('Fry Momos','Fry','Paneer',8,139)")
+            db.execute("UPDATE dips SET name='Cheese Sauce' WHERE name='Cheese'")
+            fry_veg = db.execute("SELECT id FROM menu_items WHERE name='Fry Momos' AND variant='Veg'").fetchone()[0]
+        oid = self.place(cart=[{"item_id": fry_veg, "quantity": 1}])          # an order that used the old Fry item
+        database.init_database()
+        with get_db() as db:
+            rows = {(r["name"], r["variant"]): dict(r) for r in db.execute("SELECT * FROM menu_items")}
+            self.assertEqual((rows[("Veg Momos", "Veg")]["price"], rows[("Paneer Momos", "Paneer")]["price"]), (99, 109))
+            self.assertNotIn(("Steam Momos", "Veg"), rows); self.assertNotIn(("Steam Momos", "Paneer"), rows)
+            self.assertEqual(rows[("Fry Momos", "Veg")]["available"], 0)       # used by an order: kept but hidden
+            self.assertNotIn(("Fry Momos", "Paneer"), rows)                    # never used: removed
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 12)
+            self.assertEqual(db.execute("SELECT name FROM dips ORDER BY id").fetchone()[0], "Cheese")
+            self.assertEqual(db.execute("SELECT item_name FROM order_items WHERE order_id=?", (oid,)).fetchone()[0], "Fry Momos - Veg")
+            db.execute("UPDATE menu_items SET price=111 WHERE name='Paneer Momos'")
+        database.init_database()
+        with get_db() as db: self.assertEqual(db.execute("SELECT price FROM menu_items WHERE name='Paneer Momos'").fetchone()[0], 111)   # not re-applied
+        r = self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [{"item_id": fry_veg, "quantity": 1}]})
+        self.assertEqual(r.status_code, 400)                                    # the old Fry item can't be ordered any more
+        self.assertNotIn("Fry Momos", self.client.get("/").get_data(as_text=True))
 
 
 class Tokens(Base):

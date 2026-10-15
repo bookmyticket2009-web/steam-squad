@@ -12,6 +12,8 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from flask_wtf.csrf import CSRFProtect
 from security import init_security
 from sms_parser import parse_credit_sms
+import backup_sync
+import database
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -36,7 +38,13 @@ if not app.config["SECRET_KEY"]:
 csrf = CSRFProtect(app)
 init_security(app)
 limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per minute"])
+# Free hosts wipe the disk on restart: bring the last saved copy back BEFORE the database is opened
+backup = backup_sync.manager_from_env(database.DB_PATH)   # None unless BACKUP_GITHUB_TOKEN + BACKUP_GITHUB_REPO are set
+if backup:
+    backup.restore_if_needed()
 init_database()
+if backup:
+    backup.start()
 
 @app.context_processor
 def inject_settings():
@@ -76,6 +84,19 @@ def cancel_seconds(order):
 
 def valid_phone(phone):
     return bool(re.fullmatch(r"[6-9]\d{9}", phone or ""))
+
+def item_label(name, variant, category, dash=" "):
+    """Veg Momos / Salted Fries stand alone; flavours get their filling: Peri Peri Momos (Paneer)."""
+    if variant == "Regular" or category == "Steam":
+        return name
+    return f"{name}{dash}{variant}" if dash == " - " else f"{name} ({variant})"
+
+def dish_img(key):
+    """URL of the dish picture cut from the menu poster, or None (the page then shows a doodle icon)."""
+    rel = f"images/dish-{key}.jpg"
+    return url_for("static", filename=rel) if os.path.exists(os.path.join(app.static_folder, rel)) else None
+
+app.jinja_env.globals["dish_img"] = dish_img
 
 def _expire_unpaid(db):
     """Unpaid orders (no UTR sent) older than UNPAID_EXPIRY_MINUTES are closed and their plates returned."""
@@ -176,13 +197,9 @@ def create_order_from_cart(name, phone, cart, instructions):
                            (order_id, obj["id"], qty, obj["price"], obj["price"] * qty, obj["name"]))
                 continue
             _, obj, qty, unit, cooking = entry
-            if obj["variant"] == "Regular":
-                label = obj["name"]
-            else:
-                base = "Fry Momos" if (obj["category"] == "Steam" and cooking == "Fry") else obj["name"]
-                label = f"{base} - {obj['variant']}"
-                if obj["category"] in COOKABLE and obj["category"] != "Steam":
-                    label += f" ({cooking})"
+            label = item_label(obj["name"], obj["variant"], obj["category"], dash=" - ")
+            if obj["category"] in COOKABLE:
+                label += f" ({cooking})"                       # e.g. "Veg Momos (Fry)", "Peri Peri Momos - Paneer (Steam)"
             db.execute("INSERT INTO order_items(order_id,menu_item_id,variant,quantity,unit_price,subtotal,item_name,cooking) VALUES(?,?,?,?,?,?,?,?)",
                        (order_id, obj["id"], obj["variant"], qty, unit, unit * qty, label, cooking))
         db.execute(
@@ -602,6 +619,10 @@ def ist_filter(value):
     except (TypeError, ValueError):
         return value or "—"
 
+@app.template_filter("ist_epoch")
+def ist_epoch_filter(value):
+    return datetime.fromtimestamp(int(value), IST).strftime("%d %b, %I:%M:%S %p")
+
 @app.get("/admin/orders/<int:order_id>/history")
 @admin_required
 def admin_order_history(order_id):
@@ -641,6 +662,17 @@ def admin_export():
     return Response(out.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="steam-squad-orders-{business_date()}.csv"'})
 
+@app.post("/admin/backup-now")
+@admin_required
+def admin_backup_now():
+    if not backup:
+        flash("Offsite backup is not set up (see README).", "error")
+    elif backup.backup_now("admin"):
+        flash("Backup saved offsite.", "success")
+    else:
+        flash(f"Backup failed: {backup.status['error']}", "error")
+    return redirect(url_for("admin_payments"))
+
 @app.get("/admin/backup")
 @admin_required
 def admin_backup():
@@ -657,7 +689,8 @@ def admin_backup():
 @app.context_processor
 def inject_storage_warning():
     # On Render the project disk is wiped on every restart/redeploy unless DB_PATH points at a persistent Disk
-    return {"storage_warning": bool(os.getenv("RENDER")) and not os.getenv("DB_PATH")}
+    return {"storage_warning": bool(os.getenv("RENDER")) and not os.getenv("DB_PATH") and not backup,
+            "backup_status": backup.status if backup else None}
 
 def _asset_version():
     newest = 0
@@ -746,8 +779,8 @@ def admin_menu_toggle(item_id):
     on = request.form.get("available") == "1"
     update_menu_item(item_id, on)
     with get_db() as db:
-        r = db.execute("SELECT name, variant FROM menu_items WHERE id=?", (item_id,)).fetchone()
-        record(db, None, "MENU_AVAILABILITY", session.get("admin_username", "admin"), f"{r['name']} {r['variant']}: {'AVAILABLE' if on else 'SOLD OUT'}" if r else f"item {item_id}")
+        r = db.execute("SELECT name, variant, category FROM menu_items WHERE id=?", (item_id,)).fetchone()
+        record(db, None, "MENU_AVAILABILITY", session.get("admin_username", "admin"), f"{item_label(r['name'], r['variant'], r['category'])}: {'AVAILABLE' if on else 'SOLD OUT'}" if r else f"item {item_id}")
     return redirect(url_for("admin_menu"))
 
 @app.post("/admin/dips/<int:dip_id>/toggle")
@@ -770,7 +803,7 @@ def admin_inventory():
 def admin_stock():
     expire_stale_orders()
     with get_db() as db:
-        log = [dict(r) for r in db.execute("""SELECT l.*, CASE l.kind WHEN 'dip' THEN d.name ELSE m.name || ' (' || m.variant || ')' END AS item
+        log = [dict(r) for r in db.execute("""SELECT l.*, CASE l.kind WHEN 'dip' THEN d.name WHEN 'menu' THEN CASE WHEN m.variant='Regular' OR m.category='Steam' THEN m.name ELSE m.name || ' (' || m.variant || ')' END END AS item
             FROM stock_log l LEFT JOIN menu_items m ON l.kind='menu' AND m.id=l.item_id LEFT JOIN dips d ON l.kind='dip' AND d.id=l.item_id
             ORDER BY l.id DESC LIMIT 25""").fetchall()]
     return render_template("admin/stock.html", menu=get_menu(True), dips=get_dips(True), log=log)
@@ -791,7 +824,7 @@ def admin_stock_change(kind, item_id):
         row = db.execute(f"SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()
         if not row:
             abort(404)
-        label = row["name"] if kind == "dip" else f"{row['name']} ({row['variant']})"
+        label = row["name"] if kind == "dip" else item_label(row["name"], row["variant"], row["category"])
         have = row["stock"]
         if action == "untrack":
             db.execute(f"UPDATE {table} SET stock=NULL WHERE id=?", (item_id,))

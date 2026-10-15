@@ -14,7 +14,7 @@
 {% include "admin/_nav.html" %}
 <div class="queue-bar"><h1>STOCK</h1></div>
 <p class="muted">Set how many plates you have. <b>Online orders subtract automatically</b>; press <b>− 1 SOLD AT COUNTER</b> for walk-in customers so online buyers never order what's gone. At 0 the item shows SOLD OUT on the website. Cancelled and unpaid orders give their plates back.</p>
-<h2 class="q-title">MOMOS &amp; FRIES</h2><div class="order-grid">{% for m in menu if m.category != 'Fry' %}{{ card('menu', m, m.name ~ ('' if m.variant == 'Regular' else ' · ' ~ m.variant)) }}{% endfor %}</div>
+<h2 class="q-title">MOMOS &amp; FRIES</h2><div class="order-grid">{% for m in menu if m.category != 'Fry' %}{{ card('menu', m, m.name ~ ('' if m.variant == 'Regular' or m.category == 'Steam' else ' · ' ~ m.variant)) }}{% endfor %}</div>
 <h2 class="q-title">EXTRA DIPS</h2><div class="order-grid">{% for d in dips %}{{ card('dip', d, d.name) }}{% endfor %}</div>
 <h2 class="q-title">RECENT STOCK CHANGES</h2>
 <div class="panel table-wrap"><table><tr><th>When</th><th>Item</th><th>Change</th><th>Left</th><th>Why</th><th>By</th></tr>

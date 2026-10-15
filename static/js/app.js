@@ -1,6 +1,6 @@
 window.CSRF = document.querySelector('meta[name="csrf-token"]')?.content || "";
-function getCart(){ try{return JSON.parse(localStorage.getItem("steam_cart")||"[]")}catch(e){return[]}}
-function saveCart(c){localStorage.setItem("steam_cart",JSON.stringify(c)); updateCartCount();}
+function getCart(){ try{return JSON.parse(localStorage.getItem("steam_cart2")||"[]")}catch(e){return[]}}
+function saveCart(c){localStorage.setItem("steam_cart2",JSON.stringify(c)); updateCartCount();}
 function updateCartCount(){
  const c=getCart(), n=c.reduce((s,x)=>s+Number(x.quantity||0),0), t=c.reduce((s,x)=>s+Number(x.quantity||0)*Number(x.price||0),0);
  const el=document.getElementById("cartCount");if(el)el.textContent=n;
@@ -13,9 +13,11 @@ function addToCart(item,n=1){
  const c=getCart(); const found=c.find(x=>(x.item_id||0)===(item.item_id||0)&&(x.dip_id||0)===(item.dip_id||0)&&!!x.fry===!!item.fry);
  if(found) found.quantity=Math.min(50,found.quantity+n); else c.push({...item,quantity:Math.min(50,n)}); saveCart(c);
 }
-// " · Fry" / " · Steam" label for flavours (plain momos are named Steam Momos / Fry Momos instead)
-function styleText(x){return x.cat&&x.cat!=="Steam"&&"fry" in x?(x.fry?" · Fry":" · Steam"):""}
-function momoItem(d,fry){return{item_id:+d.itemId,name:d.cat==="Steam"&&fry?"Fry Momos":d.name,cat:d.cat||"",variant:d.variant,price:+d.price+(fry?+d.extra:0),pieces:+d.pieces,fry}}
+// "Fry" / "Steam" for any plate that has a cooking choice, and whether to show "Veg"/"Paneer" next to the name
+function styleOf(x){return x.cat&&"fry" in x?(x.fry?"Fry":"Steam"):""}
+function showVariant(x){return !x.dip_id&&x.variant&&x.variant!=="Regular"&&x.cat!=="Steam"}
+function momoItem(d,fry){return{item_id:+d.itemId,name:d.name,cat:d.cat||"",variant:d.variant,price:+d.price+(fry?+d.extra:0),pieces:+d.pieces,fry}}
+const plainName=d=>d.cat==="Steam"?d.name:`${d.name} · ${d.variant}`;
 function toast(msg){let t=document.getElementById("toast");if(!t){t=document.createElement("div");t.id="toast";t.className="toast";t.setAttribute("role","status");document.body.appendChild(t)}
  t.textContent=msg;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove("show"),1800)}
 
@@ -42,7 +44,7 @@ function renderPicks(){
 const sheet=document.getElementById("sheet"); let cur=null, fry=false, qty=1, room=50;
 function paintSheet(){
  const d=cur.dataset, extra=+d.extra, unit=+d.price+(fry?extra:0);
- document.getElementById("sheetTitle").textContent=`${d.name} · ${d.variant}`;
+ document.getElementById("sheetTitle").textContent=plainName(d);
  document.getElementById("sheetSub").textContent=`${d.pieces} PCS per plate · how do you want it?`+(room<=5?` · only ${room} left`:"");
  document.getElementById("fryExtra").textContent=`+₹${extra}`;
  sheet.querySelectorAll("[data-style]").forEach(b=>b.classList.toggle("on",(b.dataset.style==="fry")===fry));
@@ -61,7 +63,7 @@ document.addEventListener("click",e=>{
   if(t===sheet||t.closest("[data-close]")){sheet.close();return}
   const st=t.closest("[data-style]"); if(st){fry=st.dataset.style==="fry";paintSheet();return}
   const q=t.closest("[data-q]"); if(q){qty=Math.min(room,Math.max(1,qty+ +q.dataset.q));paintSheet();return}
-  if(t.closest("#sheetAdd")){addToCart(momoItem(cur.dataset,fry),qty);sheet.close();toast(`Added ${qty} × ${fry&&cur.dataset.cat==="Steam"?"Fry Momos":cur.dataset.name} (${cur.dataset.variant}${fry?", Fry":", Steam"})`)}
+  if(t.closest("#sheetAdd")){addToCart(momoItem(cur.dataset,fry),qty);sheet.close();toast(`Added ${qty} × ${plainName(cur.dataset)} (${fry?"Fry":"Steam"})`)}
   return;
  }
  const o=e.target.closest(".opt"); if(!o||o.classList.contains("soldout"))return;

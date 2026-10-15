@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS bank_credits (
     order_id INTEGER,
     matched_at TEXT
 );
+CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX IF NOT EXISTS idx_stocklog_order ON stock_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_ref ON payment_attempts(reference);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(order_status);
@@ -168,11 +169,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_business_date ON orders(business_date);
 CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 """
 
-MENU = [
-    ("Steam Momos", "Steam", "Veg", 8, 99),
-    ("Steam Momos", "Steam", "Paneer", 8, 129),
-    ("Fry Momos", "Fry", "Veg", 8, 109),
-    ("Fry Momos", "Fry", "Paneer", 8, 139),
+MENU = [   # the final printed menu: 8 pcs per plate, +Rs 10 for fry on every momo type
+    ("Veg Momos", "Steam", "Veg", 8, 99),
+    ("Paneer Momos", "Steam", "Paneer", 8, 109),
     ("Peri Peri Momos", "Peri Peri", "Veg", 8, 119),
     ("Peri Peri Momos", "Peri Peri", "Paneer", 8, 149),
     ("Tandoori Momos", "Tandoori", "Veg", 8, 119),
@@ -180,7 +179,7 @@ MENU = [
     ("Cheese Loaded Momos", "Cheese Loaded", "Veg", 8, 129),
     ("Cheese Loaded Momos", "Cheese Loaded", "Paneer", 8, 159),
 ]
-DIPS = [("Cheese Sauce", 10), ("Schezwan Sauce", 10), ("Tandoori Sauce", 10), ("Peri Peri Sauce", 10)]
+DIPS = [("Cheese", 10), ("Schezwan Sauce", 10), ("Tandoori Sauce", 10), ("Peri Peri Sauce", 10)]
 
 FRIES = [("Salted Fries", "Fries", "Regular", 0, 79), ("Peri Peri Fries", "Fries", "Regular", 0, 99), ("Cheesy Fries", "Fries", "Regular", 0, 129)]
 
@@ -234,6 +233,21 @@ def record(db, order_id, action, actor, details="", old=None, new=None, ip=None,
 def utcnow():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
+def _upgrade_to_final_menu(db):
+    """Runs once on an older database: Steam Veg/Paneer become Veg Momos/Paneer Momos (Paneer now 109),
+    the old separate Fry Momos items go away (fry is now +10 on every type), and the cheese dip is just "Cheese".
+    Orders already placed keep their own names and prices."""
+    if db.execute("SELECT 1 FROM app_meta WHERE key='final_menu_v1'").fetchone():
+        return
+    db.execute("UPDATE menu_items SET name='Veg Momos' WHERE name='Steam Momos' AND variant='Veg'")
+    db.execute("UPDATE menu_items SET name='Paneer Momos', price=109 WHERE name='Steam Momos' AND variant='Paneer'")
+    db.execute("""DELETE FROM menu_items WHERE category='Fry'
+                  AND id NOT IN (SELECT menu_item_id FROM order_items WHERE menu_item_id IS NOT NULL)
+                  AND id NOT IN (SELECT item_id FROM stock_log WHERE kind='menu')""")
+    db.execute("UPDATE menu_items SET available=0 WHERE category='Fry'")     # old orders still point at these: just hide them
+    db.execute("UPDATE dips SET name='Cheese' WHERE name='Cheese Sauce'")
+    db.execute("INSERT INTO app_meta(key,value) VALUES('final_menu_v1', ?)", (utcnow(),))
+
 def init_database():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with get_db() as db:
@@ -252,6 +266,7 @@ def init_database():
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_payment_id ON payments(payment_id) WHERE payment_id IS NOT NULL")
         except sqlite3.IntegrityError:
             print("WARNING: duplicate payment references exist in an old database; unique index not created.")
+        _upgrade_to_final_menu(db)   # must run before the seeding below
         # INSERT OR IGNORE: adds new items (like fries) to an existing database without touching prices you changed
         db.executemany(
             "INSERT OR IGNORE INTO menu_items(name,category,variant,pieces,price) VALUES (?,?,?,?,?)", MENU + FRIES

@@ -130,3 +130,9 @@ dialog.sheet::backdrop{background:#000c}
 /* stock page */
 .stockcard .bignum{font-family:Anton,sans-serif;font-size:64px;line-height:1}.stockcard.low{border-left-color:var(--yellow)}.stockcard.low .bignum{color:var(--yellow)}
 .stockcard.out{border-left-color:var(--red)}.stockcard.out .bignum{color:var(--red)}.setform{display:flex;gap:8px;margin-top:10px}.setform input{flex:1;min-width:0}.stockcard form+form{margin-top:0}
+
+/* final menu look */
+.dish-img{width:96px;height:64px;object-fit:cover;border-radius:12px;border:1px solid #2c2c26;background:#111}
+.dish h3 .v{width:20px;height:20px;vertical-align:-3px}.picks.one{grid-template-columns:1fr}
+.fry-banner{margin:22px 0 0;padding:14px 18px;text-align:center;font-weight:900;color:#1a1100;border-radius:10px 22px 10px 22px;transform:rotate(-.6deg);background:linear-gradient(100deg,#ffd83d,#ff9a2e 70%,#ff6b35)}
+@media(max-width:700px){.dish-img{width:84px;height:56px}.fry-banner{font-size:14px}}
