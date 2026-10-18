@@ -8,7 +8,7 @@
   <p class="muted">{% for i in o['items'] %}{{ i.quantity }} × {{ i.item_name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
   <p class="muted small">{{ o.order_number }}</p>
   {% if s in ['PAYMENT_PENDING','PAYMENT_FAILED'] %}<span class="btn primary full">{{ 'CHECK PAYMENT' if o.payment and o.payment.status == 'SUBMITTED' else 'COMPLETE PAYMENT' }}</span>
-  {% elif s == 'READY' %}<span class="btn success full">🔔 READY · SHOW TOKEN {{ o.token }}</span>{% endif %}
+  {% elif s == 'READY' %}<span class="btn success full">🔔 READY · SHOW TOKEN {{ o.token }} AT STALL {{ stall_number }}</span>{% endif %}
 </a>{% else %}<div class="empty"><div class="big-doodle">🥟</div><h2>No orders yet</h2><a class="btn primary" href="{{ url_for('home') }}">ORDER MOMOS</a></div>{% endfor %}
 </div>
 <p class="muted small center">Orders stay here for 12 hours on this phone. Lost the page? Use “Find by token” with your mobile number.</p></section>{% endblock %}

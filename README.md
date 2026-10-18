@@ -54,3 +54,15 @@ Until then, download a backup from Admin → Payments → "Backup database" at t
 4. Admin → Payments → paste one real SMS into "Test your bank's SMS" to confirm it is understood.
 5. Place a ₹99 test order, pay it, and enter the UTR. It should confirm by itself within seconds.
 If the secret is empty the feature is off and you keep verifying by hand. Always compare with your bank statement at the end of the day.
+
+## Free hosting without losing orders (offsite backup)
+Render's free plan wipes the disk whenever the site sleeps, restarts or redeploys. This saves the database to a private GitHub repo and brings it back automatically.
+1. On GitHub create a new **private** repository (e.g. `steam-squad-backups`) and tick "Add a README".
+2. GitHub → Settings → Developer settings → Fine-grained tokens → new token: repository access = **only that repo**, permission **Contents: Read and write**.
+3. On Render add environment variables `BACKUP_GITHUB_REPO` (`yourname/steam-squad-backups`) and `BACKUP_GITHUB_TOKEN`. Redeploy.
+4. Admin → Payments → "Offsite backup" must say **ON**. Press **BACK UP NOW**: a "Database backups" release with a file appears in that repo.
+5. Test it once: Render → Manual Deploy → Restart. Your orders must still be there afterwards.
+A copy is saved a few minutes after any change and again when the server stops, so at worst the last few minutes are lost. Deploy when the stall is quiet. The first visit after a sleep takes about a minute on a free plan.
+
+## Pickup stall number
+Customers see "Stall No. 032" on the menu page, checkout, order page, READY banner and footer. Change it with the `STALL_NUMBER` setting.

@@ -181,3 +181,5 @@ dialog.sheet::backdrop{background:#000c}
  .table-wrap table.stack td::before{content:attr(data-label);flex:0 0 38%;color:var(--muted);font-weight:700;text-align:left}
  .table-wrap table.stack td[colspan]{display:block;text-align:center}.table-wrap table.stack td[colspan]::before{content:none}
 }
+
+.stall-chip{display:inline-block;margin:6px 0 0;padding:8px 16px;border:2px dashed var(--yellow);border-radius:999px;color:var(--yellow);font-weight:900}

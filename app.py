@@ -710,7 +710,8 @@ def inject_storage_warning():
     # On Render the project disk is wiped on every restart/redeploy unless DB_PATH points at a persistent Disk
     return {"storage_warning": bool(os.getenv("RENDER")) and not os.getenv("DB_PATH") and not backup,
             "backup_status": backup.status if backup else None,
-            "waiting_payments": len(pending_payment_orders()) if request.path.startswith("/admin") else 0}
+            "waiting_payments": len(pending_payment_orders()) if request.path.startswith("/admin") else 0,
+            "stall_number": app.config.get("STALL_NUMBER", "032")}
 
 def _asset_version():
     newest = 0

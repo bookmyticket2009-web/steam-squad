@@ -1,10 +1,16 @@
 import os
+import re
 from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
+
+
+def clean_stall(value):
+    """Letters, digits, space and hyphen only, so a typo in the settings can never break a page."""
+    return re.sub(r"[^A-Za-z0-9 \-]", "", str(value or ""))[:12].strip() or "032"
 
 
 class Config:
@@ -21,6 +27,9 @@ class Config:
     # Bank-SMS auto verification (leave the secret empty to switch it off)
     SMS_WEBHOOK_SECRET = os.getenv("SMS_WEBHOOK_SECRET", "").strip()
     SMS_SENDER_CONTAINS = os.getenv("SMS_SENDER_CONTAINS", "").strip()   # e.g. "HDFCBK,SBIUPI": only these senders count
+
+    # Where customers collect their order (printed on the menu page, order page and receipt)
+    STALL_NUMBER = clean_stall(os.getenv("STALL_NUMBER", "032"))
 
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")

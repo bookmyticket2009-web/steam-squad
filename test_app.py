@@ -1004,6 +1004,33 @@ class AdminPhone(Base):
         self.assertIn("table.stack", css); self.assertIn("attr(data-label)", css)
 
 
+class StallNumber(Base):
+    def test_default_is_032_and_shown_where_customers_need_it(self):
+        from config import Config
+        self.assertEqual(Config.STALL_NUMBER, "032")
+        home = self.client.get("/").get_data(as_text=True)
+        self.assertGreaterEqual(home.count("Stall No. 032"), 2); self.assertIn("STALL NO. 032", home); self.assertIn("Collect at Stall 032", home)
+        self.assertIn("Pick up at Stall No. 032", self.client.get("/checkout").get_data(as_text=True))
+        oid = self.paid_order(); adm = self.admin()
+        self.assertIn("Stall No. 032", self.client.get(f"/order/{oid}").get_data(as_text=True))
+        for s in ("PREPARING", "READY"): adm.post(f"/admin/orders/{oid}/status", data={"status": s})
+        page = self.client.get(f"/order/{oid}").get_data(as_text=True)
+        self.assertIn("YOUR ORDER IS READY", page); self.assertIn("Show this token at Stall No. 032.", page)
+        self.assertIn("AT STALL 032", self.client.get("/my-orders").get_data(as_text=True))
+        self.assertIn("Pickup stall number", adm.get("/admin/settings").get_data(as_text=True))
+
+    def test_the_number_can_be_changed_and_is_cleaned(self):
+        from config import clean_stall
+        self.assertEqual((clean_stall("A-12"), clean_stall("<script>alert(1)</script>"), clean_stall(""), clean_stall("  "), clean_stall("0123456789012345")), ("A-12", "scriptalert1", "032", "032", "012345678901"))
+        app.config["STALL_NUMBER"] = "A-12"
+        try:
+            self.assertIn("Stall No. A-12", self.client.get("/").get_data(as_text=True)); self.assertNotIn("Stall No. 032", self.client.get("/").get_data(as_text=True))
+            app.config["STALL_NUMBER"] = "<b>x</b>"
+            self.assertIn("Stall No. &lt;b&gt;x&lt;/b&gt;", self.client.get("/").get_data(as_text=True))   # even a bad value cannot inject HTML
+        finally:
+            app.config["STALL_NUMBER"] = "032"
+
+
 class Tokens(Base):
     def test_simultaneous_verification_gives_unique_tokens(self):
         ids = []
