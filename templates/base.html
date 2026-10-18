@@ -5,6 +5,7 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <title>{% block title %}Steam Squad Momos{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+{% if request.path.startswith('/admin') %}<link rel="manifest" href="{{ url_for('static', filename='admin.webmanifest') }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/admin-180.png') }}"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="SS Admin">{% endif %}
 </head>
 <body>
 {% include "_icons.html" %}
@@ -16,5 +17,6 @@
 {% if not request.path.startswith('/admin') %}<a id="cartBar" class="cart-bar" href="{{ url_for('cart') }}" hidden><span><b id="barCount">0</b> items</span><span>VIEW CART · ₹<b id="barTotal">0</b></span></a>{% endif %}
 <footer>STEAM SQUAD MOMOS · 8 PCS PER PLATE · ONLINE PAYMENT ONLY</footer>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% if request.path.startswith('/admin') %}<script src="{{ url_for('static', filename='js/tables.js') }}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body></html>

@@ -1,1 +1,16 @@
-{% extends "admin/base.html" %}{% block admin_content %}<h1>REFUNDS</h1><div class="table-wrap"><table><tr><th>Order</th><th>Token</th><th>Customer</th><th>Amount</th><th>Payment ID</th><th>Refund ID</th><th>Status</th><th>Requested</th></tr>{% for r in refunds %}<tr><td>{{r.order_number}}</td><td>{{r.token}}</td><td>{{r.customer_name}} · {{r.phone}}</td><td>₹{{r.amount}}</td><td>{{r.payment_id or '—'}}</td><td>{{r.refund_id or '—'}}</td><td>{{r.status}}</td><td>{{r.requested_at}}</td></tr>{% endfor %}</table></div>{% endblock %}
+{% extends "base.html" %}{% block title %}Refunds · SS Admin{% endblock %}
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><h1>REFUNDS</h1></div>
+<p class="muted small">Send the money back from your UPI app, then press <b>REFUND SENT</b> (add the refund UTR if you have it).</p>
+{% for r in refunds %}<div class="order-card {{ 'st-refund_requested' if r.status == 'REFUND_REQUESTED' else '' }}">
+  <div class="order-top"><span class="big-token">{{ r.token or '—' }}</span><b>₹{{ r.amount }}</b></div>
+  <span class="status {{ r.status|lower }}">{{ r.status.replace('_',' ') }}</span>
+  <p>{{ r.customer_name }} · <a href="tel:{{ r.phone }}">{{ r.phone }}</a></p>
+  <p class="muted small">{{ r.order_number }} · paid with UTR {{ r.payment_id or '—' }}<br>Requested {{ r.requested_at|ist }}{% if r.requested_by %} by {{ r.requested_by }}{% endif %}{% if r.completed_at %}<br>Refunded {{ r.completed_at|ist }}{% if r.refund_id %} · ref {{ r.refund_id }}{% endif %}{% endif %}</p>
+  {% if r.status == 'REFUND_REQUESTED' %}<form class="refund" method="post" action="{{ url_for('admin_status', order_id=r.order_id) }}" onsubmit="return confirm('Have you sent ₹{{ r.amount }} back to the customer?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="status" value="REFUNDED">
+    <input name="reference" maxlength="40" placeholder="Refund UTR / reference (optional)" autocomplete="off"><button class="btn primary" type="submit">REFUND SENT</button></form>{% endif %}
+  <a class="small" href="{{ url_for('admin_order_history', order_id=r.order_id) }}">Full history →</a>
+</div>{% else %}<div class="panel center"><h2>No refunds</h2></div>{% endfor %}
+</section>{% endblock %}

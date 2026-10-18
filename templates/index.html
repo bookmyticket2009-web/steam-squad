@@ -15,7 +15,23 @@
   <a class="btn primary" href="#momos">ORDER NOW</a>
 </div><div class="doodle"><svg class="mascot" viewBox="0 0 150 130" role="img" aria-label="Steam Squad momo mascot holding an Eat Momos Be Happy sign"><use href="#i-mascot"/></svg></div></section>
 <ol class="how"><li><b>1</b>Pick your momos</li><li><b>2</b>Pay with any UPI app</li><li><b>3</b>Get your token</li><li><b>4</b>Collect when it says READY</li></ol>
-<nav class="chips" aria-label="Menu sections"><a href="#momos">Momos</a><a href="#fries">Fries</a><a href="#dips">Extra dips</a></nav>
+<nav class="chips" aria-label="Menu sections"><a href="#combos">Combos</a><a href="#momos">Momos</a><a href="#fries">Fries</a><a href="#dips">Extra dips</a></nav>
+
+<section id="combos" class="section"><div class="section-head"><h2><span class="brush">COMBO MENU</span></h2><span>Save more together</span></div>
+<div class="combo-grid">{% for c in combos %}{% set sp = c.spec %}
+<article class="combo">
+  {% set u = dish_img(sp.image) %}{% if u %}<img class="combo-img" src="{{ u }}" alt="{{ c.name }}" width="360" height="240" loading="lazy">{% endif %}
+  <div class="combo-body"><span class="badge tone-{{ sp.tone }}">{{ sp.badge }}</span>
+    <h3>{{ loop.index }}. {{ c.name.upper() }}</h3>
+    <ul class="combo-lines">{% for l in sp.lines %}<li>{{ l }}</li>{% endfor %}</ul>
+    {% if sp.note %}<p class="muted small">{{ sp.note }}</p>{% endif %}
+    <div class="combo-tiles">{% for t in c.tiles %}<button type="button" class="combo-pick" {% if not t.orderable %}disabled{% endif %} data-item-id="{{ t.item.id }}" data-name="{{ c.name }}" data-variant="{{ t.item.variant }}" data-price="{{ t.item.price }}" data-left="{{ t.item.stock if t.item.stock is not none else '' }}" data-options='{{ t.options|tojson }}'>
+      <span class="cnt" hidden></span>
+      {% if t.item.variant != 'Regular' %}<span class="t"><svg class="v {{ t.item.variant|lower }}" aria-hidden="true"><use href="#i-{{ 'leaf' if t.item.variant == 'Veg' else 'paneer' }}"/></svg>{{ t.item.variant|upper }}</span>{% endif %}
+      {% if t.orderable %}<b>₹{{ t.item.price }}</b><small>{{ 'CHOOSE & ADD' if t.options else 'TAP TO ADD' }}</small>{% else %}<small>SOLD OUT</small>{% endif %}
+    </button>{% endfor %}</div>
+  </div>
+</article>{% endfor %}</div></section>
 
 <section id="momos" class="section"><div class="section-head"><h2><span class="brush">MOMOS</span></h2><span>8 pcs per plate</span></div>
 <div class="menu-grid">
@@ -44,6 +60,14 @@
   <div class="opt-head"><svg class="v" style="color:var(--orange)" aria-hidden="true"><use href="#i-dip"/></svg><span>{{ d.name }}</span><b>₹{{ d.price }}</b></div>
   <div class="ctl">{% if not d.orderable %}<span class="so">SOLD OUT</span>{% endif %}</div></div>{% endfor %}</div>
 <p class="center muted" style="margin-top:22px">Eat. Repeat. Be happy.</p></section>
+
+<dialog id="comboSheet" class="sheet" aria-labelledby="comboTitle"><div class="sheet-in">
+  <button type="button" class="sheet-x" data-close aria-label="Close">×</button>
+  <h3 id="comboTitle"></h3>
+  <div id="comboGroups"></div>
+  <div class="step"><button type="button" data-q="-1" aria-label="Fewer">−</button><b id="comboQty">1</b><button type="button" data-q="1" aria-label="More">+</button></div>
+  <button type="button" class="btn primary full" id="comboAdd"></button>
+</div></dialog>
 
 <dialog id="sheet" class="sheet" aria-labelledby="sheetTitle"><div class="sheet-in">
   <button type="button" class="sheet-x" data-close aria-label="Close">×</button>

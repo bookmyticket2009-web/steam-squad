@@ -1,1 +1,17 @@
-{% extends "admin/base.html" %}{% block admin_content %}<div class="admin-head"><div><span class="eyebrow">{{date}}</span><h1>TODAY'S DASHBOARD</h1></div><a class="btn" href="{{url_for('admin_orders')}}">OPEN QUEUE</a></div><div class="stats-grid">{% for label,key in [('Sales','revenue'),('Orders','orders'),('Paid','paid'),('Preparing','preparing'),('Ready','ready'),('Completed','completed'),('Cancelled','cancelled'),('Refunded','refunded')] %}<div class="stat"><small>{{label}}</small><strong>{% if key=='revenue' %}₹{% endif %}{{stats[key] or 0}}</strong></div>{% endfor %}</div><div class="panel"><h2>ITEM BREAKDOWN</h2><p>Veg: {{stats.variants.get('Veg',0)}} · Paneer: {{stats.variants.get('Paneer',0)}}</p><p>Steam: {{stats.categories.get('Steam',0)}} · Fry: {{stats.categories.get('Fry',0)}} · Peri Peri: {{stats.categories.get('Peri Peri',0)}} · Tandoori: {{stats.categories.get('Tandoori',0)}} · Cheese Loaded: {{stats.categories.get('Cheese Loaded',0)}} · Extra Dips: {{stats.dips}}</p></div>{% endblock %}
+{% extends "base.html" %}{% block title %}Dashboard · SS Admin{% endblock %}
+{% set cats = [('Steam','Veg / Paneer Momos, steamed'),('Fry','Veg / Paneer Momos, fried'),('Peri Peri','Peri Peri Momos'),('Tandoori','Tandoori Momos'),('Cheese Loaded','Cheese Loaded Momos'),('Combo','Combos'),('Fries','Fries')] %}
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><div><span class="eyebrow">{{ date }}</span><h1>TODAY</h1></div><a class="btn primary" href="{{ url_for('admin_orders') }}">OPEN ORDERS</a></div>
+{% if pending %}<a class="pay-warn" style="display:block" href="{{ url_for('admin_orders') }}">⏳ <b>{{ pending }}</b> payment(s) waiting to be verified →</a>{% endif %}
+<div class="stats-grid">
+{% for label, value in [('Sales', '₹' ~ (stats.revenue or 0)), ('Orders', stats.orders or 0), ('Paid', stats.paid or 0), ('Preparing', stats.preparing or 0), ('Ready', stats.ready or 0), ('Completed', stats.completed or 0), ('Cancelled', stats.cancelled or 0), ('Refunded', stats.refunded or 0)] %}
+<div class="stat"><small>{{ label }}</small><strong>{{ value }}</strong></div>{% endfor %}</div>
+<div class="panel"><h2>WHAT SOLD TODAY</h2>
+{% for key, label in cats %}<div class="statrow"><span>{{ label }}</span><b>{{ stats.categories.get(key, 0) }}</b></div>{% endfor %}
+<div class="statrow"><span>Veg plates</span><b>{{ stats.variants.get('Veg', 0) }}</b></div>
+<div class="statrow"><span>Paneer plates</span><b>{{ stats.variants.get('Paneer', 0) }}</b></div>
+<div class="statrow"><span>Fried plates (all types)</span><b>{{ stats.fried or 0 }}</b></div>
+<div class="statrow"><span>Extra dips</span><b>{{ stats.dips or 0 }}</b></div></div>
+<p class="muted small">Sales and plates leave out cancelled and refunded orders.</p>
+</section>{% endblock %}

@@ -1,1 +1,18 @@
-{% extends "admin/base.html" %}{% block admin_content %}<div class="panel"><h1>SETTINGS</h1><p>Payment settings are loaded from environment variables. Never store your FAM ID or admin credentials in source code.</p><p>FAM ID configured: <b>{{ 'YES' if fam_configured else 'NO' }}</b></p><p>Payment verification: <b>Manual</b></p></div>{% endblock %}
+{% extends "base.html" %}{% block title %}Settings · SS Admin{% endblock %}
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><h1>SETTINGS</h1></div>
+<div class="panel"><h2>HOW THE STALL RUNS</h2>
+  <div class="statrow"><span>Business day</span><b>{{ today }}</b></div>
+  <div class="statrow"><span>Customers pay to (UPI ID)</span><b>{{ upi_id or 'NOT SET' }}</b></div>
+  <div class="statrow"><span>Cancel window after payment</span><b>{{ cancel_minutes }} min</b></div>
+  <div class="statrow"><span>Unpaid orders give plates back after</span><b>{{ expiry_minutes }} min</b></div>
+  <div class="statrow"><span>Fry extra (all momo types)</span><b>₹{{ fry_extra }}</b></div>
+  <div class="statrow"><span>Bank SMS auto-verify</span><b>{{ 'ON' if sms_enabled else 'OFF' }}</b></div>
+  <div class="statrow"><span>Offsite backup</span><b>{% if backup_status %}{{ 'OK' if backup_status.ok else 'FAILING' }}{% else %}not set up{% endif %}</b></div>
+  <p class="muted small">These are changed in the server settings (Render → Environment), not here.</p></div>
+<div class="panel"><h2>USE THIS ON YOUR PHONE</h2>
+  <p>Open this page in Chrome on the stall phone, tap the ⋮ menu and choose <b>Add to Home screen</b> (or <b>Install app</b>). It then opens like an app. On the Orders page tap <b>Turn on alerts</b> once. That also keeps the screen awake.</p></div>
+<div class="panel"><h2>ACCOUNT</h2><form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger full" type="submit">LOG OUT</button></form>
+  <p class="muted small">To change the admin password, make a new hash (see the README) and update <code>ADMIN_PASSWORD_HASH</code> on the server.</p></div>
+</section>{% endblock %}

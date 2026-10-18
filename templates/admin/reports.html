@@ -1,1 +1,15 @@
-{% extends "admin/base.html" %}{% block admin_content %}<h1>REPORTS · {{date}}</h1><div class="stats-grid"><div class="stat"><small>Revenue</small><strong>₹{{stats.revenue}}</strong></div><div class="stat"><small>Orders</small><strong>{{stats.orders}}</strong></div><div class="stat"><small>Plates / items</small><strong>{{stats.variants.get('Veg',0)+stats.variants.get('Paneer',0)}}</strong></div><div class="stat"><small>Dips</small><strong>{{stats.dips}}</strong></div></div>{% endblock %}
+{% extends "base.html" %}{% block title %}Reports · SS Admin{% endblock %}
+{% set cats = [('Steam','Veg / Paneer Momos, steamed'),('Fry','Veg / Paneer Momos, fried'),('Peri Peri','Peri Peri Momos'),('Tandoori','Tandoori Momos'),('Cheese Loaded','Cheese Loaded Momos'),('Combo','Combos'),('Fries','Fries')] %}
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><div><span class="eyebrow">{{ date }}</span><h1>REPORTS</h1></div></div>
+<div class="stats-grid">
+  <div class="stat"><small>Sales today</small><strong>₹{{ stats.revenue or 0 }}</strong></div>
+  <div class="stat"><small>Completed sales</small><strong>₹{{ stats.completed_revenue or 0 }}</strong></div>
+  <div class="stat"><small>Orders</small><strong>{{ stats.orders or 0 }}</strong></div>
+  <div class="stat"><small>Refunded</small><strong>{{ stats.refunded or 0 }}</strong></div></div>
+<div class="panel"><h2>PLATES TODAY</h2>{% for key, label in cats %}<div class="statrow"><span>{{ label }}</span><b>{{ stats.categories.get(key, 0) }}</b></div>{% endfor %}
+<div class="statrow"><span>Extra dips</span><b>{{ stats.dips or 0 }}</b></div></div>
+<div class="panel"><h2>DOWNLOADS</h2><div class="actions"><a class="btn primary" href="{{ url_for('admin_export') }}">⬇ ALL ORDERS (CSV)</a><a class="btn" href="{{ url_for('admin_backup') }}">⬇ DATABASE BACKUP</a></div>
+<p class="muted small">The CSV opens in Excel or Google Sheets. Keep both files private: they contain phone numbers.</p></div>
+</section>{% endblock %}

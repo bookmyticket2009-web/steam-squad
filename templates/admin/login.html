@@ -1,1 +1,7 @@
-{% extends "base.html" %}{% block title %}Admin Login · Steam Squad{% endblock %}{% block content %}<section class="section narrow"><div class="form-card"><span class="eyebrow">STAFF ONLY</span><h1>ADMIN LOGIN</h1><form method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><label>Username<input name="username" required autocomplete="username"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button class="btn primary full">LOGIN</button></form></div></section>{% endblock %}
+{% extends "base.html" %}{% block title %}Admin login · Steam Squad{% endblock %}
+{% block content %}<section class="section narrow"><span class="eyebrow">STAFF ONLY</span><h1>ADMIN LOGIN</h1>
+<form method="post" action="" class="form-card"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Username<input name="username" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+  <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+  <button class="btn primary full" type="submit">LOG IN</button>
+</form></section>{% endblock %}

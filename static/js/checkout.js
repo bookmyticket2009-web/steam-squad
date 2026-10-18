@@ -2,7 +2,7 @@ const form=document.getElementById("checkoutForm"), summary=document.getElementB
 const cart=getCart();
 if(!cart.length){location="/cart"}
 const e=t=>String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-summary.innerHTML=cart.map(x=>`<div class="status-line"><span>${x.quantity} × ${e(x.name)}${showVariant(x)?" - "+e(x.variant):""}${styleOf(x)?" ("+styleOf(x)+")":""}</span><b>₹${x.price*x.quantity}</b></div>`).join("")+
+summary.innerHTML=cart.map(x=>`<div class="status-line"><span>${x.quantity} × ${e(x.name)}${showVariant(x)?" - "+e(x.variant):""}${styleOf(x)?" ("+styleOf(x)+")":""}${x.choices?" ("+e(Object.values(x.choices).join(", "))+")":""}</span><b>₹${x.price*x.quantity}</b></div>`).join("")+
  `<div class="cart-total"><span>Total</span><strong>₹${cart.reduce((s,x)=>s+x.price*x.quantity,0)}</strong></div><a href="/cart">← Add or change items</a>`;
 form.addEventListener("submit",async e=>{
  e.preventDefault(); const btn=form.querySelector("button[type=submit]"); btn.disabled=true; // avoids double orders on double-tap

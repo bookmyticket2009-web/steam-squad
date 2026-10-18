@@ -1,7 +1,12 @@
 (() => {
   const live = document.getElementById("live"); if (!live) return;
   const btn = document.getElementById("enableAlerts"), baseTitle = document.title;
-  let sig = null, pending = null, ctx = null, flasher = null;
+  let sig = null, pending = null, ctx = null, flasher = null, wake = null;
+  const badge = document.getElementById("navBadge");
+  async function keepAwake() {   // stop the phone screen from sleeping while alerts are on
+    try { if ("wakeLock" in navigator) wake = await navigator.wakeLock.request("screen"); } catch (_) {}
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && btn.classList.contains("success")) keepAwake(); });
 
   function beep() {
     navigator.vibrate?.([250, 100, 250]);
@@ -15,12 +20,12 @@
   }
   btn.addEventListener("click", async () => {
     ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
-    await ctx.resume(); btn.textContent = "🔔 ALERTS ON"; btn.classList.remove("warn"); btn.classList.add("success"); beep();
+    await ctx.resume(); btn.textContent = "🔔 ALERTS ON"; btn.classList.remove("warn"); btn.classList.add("success"); beep(); keepAwake();
     if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
   });
   function alertNew(n) {
     beep();
-    if ("Notification" in window && Notification.permission === "granted") new Notification("Steam Squad: new payment", { body: n + " waiting to be verified" });
+    try { if ("Notification" in window && Notification.permission === "granted") new Notification("Steam Squad: new payment", { body: n + " waiting to be verified" }); } catch (_) {}   // Android Chrome refuses this: sound + vibration still work
     clearInterval(flasher); let on = false;
     flasher = setInterval(() => { document.title = (on = !on) ? `🔔 ${n} NEW PAYMENT` : baseTitle; }, 800);
   }
@@ -37,6 +42,7 @@
     try {
       const r = await fetch("/admin/api/queue", { cache: "no-store" }); if (!r.ok) return;
       const d = await r.json();
+      if (badge) { badge.textContent = d.pending; badge.hidden = !d.pending; }
       if (sig !== null && d.sig !== sig) await refresh();
       if (pending !== null && d.pending > pending) alertNew(d.pending);
       sig = d.sig; pending = d.pending;

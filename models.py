@@ -52,7 +52,7 @@ def dashboard_stats(date):
         row = db.execute("""
             SELECT
               COUNT(*) orders,
-              COALESCE(SUM(CASE WHEN payment_status='PAID' THEN total_amount ELSE 0 END),0) revenue,
+              COALESCE(SUM(CASE WHEN payment_status='PAID' AND order_status NOT IN ('CANCELLED','REFUND_REQUESTED','REFUNDED') THEN total_amount ELSE 0 END),0) revenue,
               COALESCE(SUM(CASE WHEN order_status='COMPLETED' THEN total_amount ELSE 0 END),0) completed_revenue,
               SUM(CASE WHEN payment_status='PAID' THEN 1 ELSE 0 END) paid,
               SUM(CASE WHEN order_status='PREPARING' THEN 1 ELSE 0 END) preparing,
@@ -67,25 +67,25 @@ def dashboard_stats(date):
             FROM order_items oi
             JOIN orders o ON o.id=oi.order_id
             JOIN menu_items mi ON mi.id=oi.menu_item_id
-            WHERE o.business_date=? AND o.payment_status='PAID'
+            WHERE o.business_date=? AND o.payment_status='PAID' AND o.order_status NOT IN ('CANCELLED','REFUND_REQUESTED','REFUNDED')
             GROUP BY 1
         """, (date,)).fetchall()
         variant_rows = db.execute("""
             SELECT oi.variant, SUM(oi.quantity) qty
             FROM order_items oi JOIN orders o ON o.id=oi.order_id
-            WHERE o.business_date=? AND o.payment_status='PAID' AND oi.menu_item_id IS NOT NULL
+            WHERE o.business_date=? AND o.payment_status='PAID' AND o.order_status NOT IN ('CANCELLED','REFUND_REQUESTED','REFUNDED') AND oi.menu_item_id IS NOT NULL
             GROUP BY oi.variant
         """, (date,)).fetchall()
         dip_qty = db.execute("""
             SELECT COALESCE(SUM(oi.quantity),0) qty
             FROM order_items oi JOIN orders o ON o.id=oi.order_id
-            WHERE o.business_date=? AND o.payment_status='PAID' AND oi.dip_id IS NOT NULL
+            WHERE o.business_date=? AND o.payment_status='PAID' AND o.order_status NOT IN ('CANCELLED','REFUND_REQUESTED','REFUNDED') AND oi.dip_id IS NOT NULL
         """, (date,)).fetchone()["qty"]
         result = dict(row)
         result["categories"] = {r["category"]: r["qty"] for r in category_rows}
         result["variants"] = {r["variant"]: r["qty"] for r in variant_rows}
         result["dips"] = dip_qty
-        result["fried"] = db.execute("SELECT COALESCE(SUM(oi.quantity),0) q FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.business_date=? AND o.payment_status='PAID' AND oi.cooking='Fry'", (date,)).fetchone()["q"]
+        result["fried"] = db.execute("SELECT COALESCE(SUM(oi.quantity),0) q FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.business_date=? AND o.payment_status='PAID' AND o.order_status NOT IN ('CANCELLED','REFUND_REQUESTED','REFUNDED') AND oi.cooking='Fry'", (date,)).fetchone()["q"]
         return result
 
 def list_orders(date=None):

@@ -187,7 +187,7 @@ FRIES = [("Salted Fries", "Fries", "Regular", 0, 79), ("Peri Peri Fries", "Fries
 NEW_COLUMNS = [
     ("orders", "created_ip"), ("orders", "user_agent"), ("orders", "payment_submitted_at"), ("orders", "verified_by"),
     ("orders", "accepted_at"), ("orders", "preparing_at"), ("orders", "ready_at"),
-    ("order_items", "cooking"),
+    ("order_items", "cooking"), ("order_items", "choices"),
     ("order_status_history", "ip"), ("order_status_history", "note"),
     ("refunds", "requested_by"), ("refunds", "completed_by"),
     ("menu_items", "stock", "INTEGER"), ("dips", "stock", "INTEGER"),   # NULL = not tracked (unlimited)
@@ -230,6 +230,14 @@ def record(db, order_id, action, actor, details="", old=None, new=None, ip=None,
         db.execute("INSERT INTO order_status_history(order_id,old_status,new_status,created_at,admin_username,ip,note) VALUES(?,?,?,?,?,?,?)",
                    (order_id, old, new, now, actor, ip, note or action))
 
+COMBOS = [   # Combo Menu poster. Veg/Paneer only matters for The Ultimate Squad
+    ("Classic Crunch", "Combo", "Regular", 0, 179),
+    ("Fire & Crunch", "Combo", "Regular", 0, 199),
+    ("Cheese Overload", "Combo", "Regular", 0, 249),
+    ("The Ultimate Squad", "Combo", "Veg", 0, 799),
+    ("The Ultimate Squad", "Combo", "Paneer", 0, 999),
+]
+
 def utcnow():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -269,7 +277,7 @@ def init_database():
         _upgrade_to_final_menu(db)   # must run before the seeding below
         # INSERT OR IGNORE: adds new items (like fries) to an existing database without touching prices you changed
         db.executemany(
-            "INSERT OR IGNORE INTO menu_items(name,category,variant,pieces,price) VALUES (?,?,?,?,?)", MENU + FRIES
+            "INSERT OR IGNORE INTO menu_items(name,category,variant,pieces,price) VALUES (?,?,?,?,?)", MENU + FRIES + COMBOS
         )
         if db.execute("SELECT COUNT(*) FROM dips").fetchone()[0] == 0:
             db.executemany("INSERT INTO dips(name,price) VALUES (?,?)", DIPS)

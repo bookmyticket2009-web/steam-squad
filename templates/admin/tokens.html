@@ -1,1 +1,11 @@
-{% extends "admin/base.html" %}{% block admin_content %}<h1>LIVE TOKENS</h1><div class="token-columns"><div><h2>PREPARING</h2>{% for o in orders if o.order_status in ['PAID','ACCEPTED','PREPARING'] %}<div class="live-token">{{o.token or '—'}}</div>{% endfor %}</div><div><h2>READY</h2>{% for o in orders if o.order_status=='READY' %}<div class="live-token ready">{{o.token}}</div>{% endfor %}</div><div><h2>COMPLETED</h2>{% for o in orders if o.order_status in ['COMPLETED','REFUNDED'] %}<div class="live-token">{{o.token or '—'}}</div>{% endfor %}</div></div>{% endblock %}
+{% extends "base.html" %}{% block title %}Live tokens · SS Admin{% endblock %}
+{% block content %}<section class="section admin-wrap">
+{% include "admin/_nav.html" %}
+<div class="queue-bar"><h1>LIVE TOKENS</h1><span class="muted small">updates every 10 seconds</span></div>
+<div class="board">
+  <div><h2>🍳 PREPARING</h2>{% for o in (orders|reverse) if o.order_status in ['PAID','ACCEPTED','PREPARING'] %}<div class="tk cooking">{{ o.token }}<small>{{ o.customer_name.split(' ')[0] }}</small></div>{% else %}<p class="muted">Nothing cooking.</p>{% endfor %}</div>
+  <div><h2>🟢 READY</h2>{% for o in orders if o.order_status == 'READY' %}<div class="tk ready">{{ o.token }}<small>{{ o.customer_name.split(' ')[0] }}</small></div>{% else %}<p class="muted">Nothing waiting for pickup.</p>{% endfor %}</div>
+  <div><h2>✅ COMPLETED</h2>{% for o in orders if o.order_status == 'COMPLETED' %}{% if loop.index <= 12 %}<div class="tk">{{ o.token }}<small>{{ o.customer_name.split(' ')[0] }}</small></div>{% endif %}{% else %}<p class="muted">None yet.</p>{% endfor %}</div>
+</div>
+</section>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/autorefresh.js') }}"></script>{% endblock %}

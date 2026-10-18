@@ -12,6 +12,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from flask_wtf.csrf import CSRFProtect
 from security import init_security
 from sms_parser import parse_credit_sms
+from combos import FRY_EXTRA, COMBO_SPECS, validate_combo_choices, combo_extra, combo_parts, combos_for_page
 import backup_sync
 import database
 from flask_limiter import Limiter
@@ -65,7 +66,6 @@ TRANSITIONS = {
 IST = timezone(timedelta(hours=5, minutes=30))
 COOKABLE = ("Steam", "Peri Peri", "Tandoori", "Cheese Loaded")   # can be steamed or fried
 UNPAID_EXPIRY_MINUTES = 45   # an order with no payment reference after this long gives its plates back
-FRY_EXTRA = 10                                                      # Rs added to a plate when fried
 CANCEL_WINDOW_MINUTES = 2   # customer cancellation window, starts when you verify the payment
 
 def now_utc():
@@ -144,6 +144,16 @@ def create_order_from_cart(name, phone, cart, instructions):
             mi = db.execute("SELECT * FROM menu_items WHERE id=? AND available=1", (item_id,)).fetchone()
             if not mi:
                 raise ValueError("One of your items is sold out.")
+            if mi["category"] == "Combo":
+                spec = COMBO_SPECS.get(mi["name"])
+                if not spec or item.get("fry"):
+                    raise ValueError("This combo isn't available.")
+                choices = validate_combo_choices(spec, item.get("choices"))
+                unit = mi["price"] + combo_extra(spec, choices)
+                label = mi["name"] + ("" if mi["variant"] == "Regular" else f" ({mi['variant']})") + ": " + spec["describe"](mi["variant"], choices)
+                total += unit * qty
+                verified_items.append(("item", mi, qty, unit, spec["cooking"] or choices.get("cooking"), choices, label, combo_parts(spec, mi["variant"], choices)))
+                continue
             fry = bool(item.get("fry"))
             cookable = mi["category"] in COOKABLE
             if fry and not cookable:
@@ -151,7 +161,7 @@ def create_order_from_cart(name, phone, cart, instructions):
             unit = mi["price"] + (FRY_EXTRA if fry else 0)
             cooking = ("Fry" if fry else "Steam") if cookable else ("Fry" if mi["category"] == "Fry" else None)
             total += unit * qty
-            verified_items.append(("item", mi, qty, unit, cooking))
+            verified_items.append(("item", mi, qty, unit, cooking, None, None, []))
 
             for dip in item.get("dips", []) or []:
                 dip_id = int(dip.get("dip_id", 0))
@@ -169,12 +179,20 @@ def create_order_from_cart(name, phone, cart, instructions):
 
         # plates per item (steam + fry lines of the same item add up) against what is left
         want = {}
+        def need(kind, row, qty):
+            want.setdefault((kind, row["id"]), [row, 0])[1] += qty
         for e in verified_items:
-            rec = want.setdefault(("dip" if e[0] == "dip" else "menu", e[1]["id"]), [e[1], 0])
-            rec[1] += e[2]
+            need("dip" if e[0] == "dip" else "menu", e[1], e[2])
+            if e[0] == "item":
+                for pkind, pname, pvariant in e[7]:      # a combo also uses up the plates, fries and sauces it is made of
+                    prow = (db.execute("SELECT * FROM dips WHERE name=? AND available=1", (pname,)).fetchone() if pkind == "dip"
+                            else db.execute("SELECT * FROM menu_items WHERE name=? AND variant=? AND available=1", (pname, pvariant)).fetchone())
+                    if not prow:
+                        raise ValueError(f"{pname} is sold out right now, so {e[1]['name']} can't be made.")
+                    need("dip" if pkind == "dip" else "menu", prow, e[2])
         for (kind, _), (obj, qty) in want.items():
             if obj["stock"] is not None and qty > obj["stock"]:
-                label = obj["name"] if kind == "dip" else f"{obj['name']} ({obj['variant']})"
+                label = obj["name"] if kind == "dip" else item_label(obj["name"], obj["variant"], obj["category"])
                 raise ValueError(f"Sorry, {label} is sold out." if obj["stock"] <= 0 else f"Only {obj['stock']} left of {label}. Please reduce the quantity.")
 
         created = utcnow()
@@ -196,12 +214,12 @@ def create_order_from_cart(name, phone, cart, instructions):
                 db.execute("INSERT INTO order_items(order_id,dip_id,quantity,unit_price,subtotal,item_name) VALUES(?,?,?,?,?,?)",
                            (order_id, obj["id"], qty, obj["price"], obj["price"] * qty, obj["name"]))
                 continue
-            _, obj, qty, unit, cooking = entry
-            label = item_label(obj["name"], obj["variant"], obj["category"], dash=" - ")
-            if obj["category"] in COOKABLE:
+            _, obj, qty, unit, cooking, choices, combo_label, _parts = entry
+            label = combo_label or item_label(obj["name"], obj["variant"], obj["category"], dash=" - ")
+            if not combo_label and obj["category"] in COOKABLE:
                 label += f" ({cooking})"                       # e.g. "Veg Momos (Fry)", "Peri Peri Momos - Paneer (Steam)"
-            db.execute("INSERT INTO order_items(order_id,menu_item_id,variant,quantity,unit_price,subtotal,item_name,cooking) VALUES(?,?,?,?,?,?,?,?)",
-                       (order_id, obj["id"], obj["variant"], qty, unit, unit * qty, label, cooking))
+            db.execute("INSERT INTO order_items(order_id,menu_item_id,variant,quantity,unit_price,subtotal,item_name,cooking,choices) VALUES(?,?,?,?,?,?,?,?,?)",
+                       (order_id, obj["id"], obj["variant"], qty, unit, unit * qty, label, cooking, json.dumps(choices) if choices else None))
         db.execute(
             "INSERT INTO payments(order_id,gateway,amount,status) VALUES(?,?,?,?)",
             (order_id, "fam", total, "PENDING")
@@ -216,7 +234,8 @@ def create_order_from_cart(name, phone, cart, instructions):
 
 @app.get("/")
 def home():
-    return render_template("index.html", menu=get_menu(True), dips=get_dips(True), fry_extra=FRY_EXTRA)
+    menu, dips = get_menu(True), get_dips(True)
+    return render_template("index.html", menu=menu, dips=dips, fry_extra=FRY_EXTRA, combos=combos_for_page(menu, dips))
 
 @app.get("/cart")
 def cart():
@@ -564,7 +583,7 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     today = business_date()
-    return render_template("admin/dashboard.html", stats=dashboard_stats(today), date=today)
+    return render_template("admin/dashboard.html", stats=dashboard_stats(today), date=today, pending=len(pending_payment_orders()))
 
 @app.get("/admin/orders")
 @admin_required
@@ -690,7 +709,8 @@ def admin_backup():
 def inject_storage_warning():
     # On Render the project disk is wiped on every restart/redeploy unless DB_PATH points at a persistent Disk
     return {"storage_warning": bool(os.getenv("RENDER")) and not os.getenv("DB_PATH") and not backup,
-            "backup_status": backup.status if backup else None}
+            "backup_status": backup.status if backup else None,
+            "waiting_payments": len(pending_payment_orders()) if request.path.startswith("/admin") else 0}
 
 def _asset_version():
     newest = 0
@@ -766,7 +786,7 @@ def admin_status(order_id):
 def admin_order_detail(order_id):
     order = get_order(order_id)
     if not order: abort(404)
-    return render_template("admin/order_detail.html", order=order)
+    return redirect(url_for("admin_order_history", order_id=order_id))   # one complete, phone-friendly page per order
 
 @app.get("/admin/menu")
 @admin_required
@@ -876,7 +896,8 @@ def admin_reports():
 @app.get("/admin/settings")
 @admin_required
 def admin_settings():
-    return render_template("admin/settings.html")
+    return render_template("admin/settings.html", today=business_date(), cancel_minutes=CANCEL_WINDOW_MINUTES, expiry_minutes=UNPAID_EXPIRY_MINUTES,
+                           fry_extra=FRY_EXTRA, upi_id=get_fam_id(), sms_enabled=bool(app.config.get("SMS_WEBHOOK_SECRET")))
 
 @app.errorhandler(400)
 def bad_request(e): return render_template("error.html", code=400, message="Invalid request."), 400

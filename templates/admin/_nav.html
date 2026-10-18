@@ -1,2 +1,27 @@
-{% set cur = request.endpoint %}<nav class="admin-nav"><a href="{{ url_for('admin_dashboard') }}">Dashboard</a><a href="{{ url_for('admin_orders') }}" class="{{ 'on' if cur == 'admin_orders' }}">Orders</a><a href="{{ url_for('admin_payments') }}" class="{{ 'on' if cur == 'admin_payments' }}">Payments</a><a href="{{ url_for('admin_stock') }}" class="{{ 'on' if cur == 'admin_stock' }}">Stock</a><a href="{{ url_for('admin_tokens') }}">Live Tokens</a><a href="{{ url_for('admin_menu') }}">Menu</a><a href="{{ url_for('admin_refunds') }}">Refunds</a><a href="{{ url_for('admin_reports') }}">Reports</a></nav>
+{% set cur = request.endpoint %}
+<nav class="admin-nav admin-top" aria-label="Admin">
+  <a href="{{ url_for('admin_dashboard') }}" class="{{ 'on' if cur == 'admin_dashboard' }}">Dashboard</a>
+  <a href="{{ url_for('admin_orders') }}" class="{{ 'on' if cur == 'admin_orders' }}">Orders{% if waiting_payments %} <b class="badge-n">{{ waiting_payments }}</b>{% endif %}</a>
+  <a href="{{ url_for('admin_payments') }}" class="{{ 'on' if cur == 'admin_payments' }}">Payments</a>
+  <a href="{{ url_for('admin_tokens') }}" class="{{ 'on' if cur == 'admin_tokens' }}">Live Tokens</a>
+  <a href="{{ url_for('admin_stock') }}" class="{{ 'on' if cur == 'admin_stock' }}">Stock</a>
+  <a href="{{ url_for('admin_menu') }}" class="{{ 'on' if cur == 'admin_menu' }}">Menu on/off</a>
+  <a href="{{ url_for('admin_refunds') }}" class="{{ 'on' if cur == 'admin_refunds' }}">Refunds</a>
+  <a href="{{ url_for('admin_reports') }}" class="{{ 'on' if cur == 'admin_reports' }}">Reports</a>
+  <a href="{{ url_for('admin_settings') }}" class="{{ 'on' if cur == 'admin_settings' }}">Settings</a>
+</nav>
+<nav class="admin-tabs" aria-label="Admin tabs">
+  <a href="{{ url_for('admin_orders') }}" class="{{ 'on' if cur == 'admin_orders' }}"><span class="ic">📋</span>Orders<b class="badge-n" id="navBadge" {{ '' if waiting_payments else 'hidden' }}>{{ waiting_payments }}</b></a>
+  <a href="{{ url_for('admin_payments') }}" class="{{ 'on' if cur == 'admin_payments' }}"><span class="ic">💳</span>Payments</a>
+  <a href="{{ url_for('admin_tokens') }}" class="{{ 'on' if cur == 'admin_tokens' }}"><span class="ic">🎟</span>Tokens</a>
+  <a href="{{ url_for('admin_stock') }}" class="{{ 'on' if cur == 'admin_stock' }}"><span class="ic">📦</span>Stock</a>
+  <details class="more"><summary><span class="ic">☰</span>More</summary>
+    <div class="morelist">
+      <a href="{{ url_for('admin_dashboard') }}">Dashboard</a><a href="{{ url_for('admin_menu') }}">Menu on / off</a><a href="{{ url_for('admin_refunds') }}">Refunds</a>
+      <a href="{{ url_for('admin_reports') }}">Reports</a><a href="{{ url_for('admin_settings') }}">Settings</a>
+      <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Log out</button></form>
+    </div>
+  </details>
+</nav>
+{% if backup_status and backup_status.ok is false %}<div class="pay-warn"><b>⚠ Offsite backup is failing:</b> {{ backup_status.error }}. Orders are safe until the server restarts, then they could be lost. <a href="{{ url_for('admin_payments') }}">Details</a></div>{% endif %}
 {% if storage_warning %}<div class="pay-warn"><b>⚠ Orders are on temporary storage.</b> This server wipes its disk on every restart or deploy, so orders and tokens reset to zero. Add a Render Disk and set <code>DB_PATH</code> (see README). Use <a href="{{ url_for('admin_backup') }}">Backup</a> meanwhile.</div>{% endif %}

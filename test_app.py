@@ -1,7 +1,8 @@
-import os, re, tempfile, threading, unittest
+import json, os, re, tempfile, threading, unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+from flask import url_for
 from werkzeug.security import generate_password_hash
 from app import app, limiter
 import database
@@ -166,7 +167,7 @@ class Menu(Base):
         with get_db() as db: db.execute("DELETE FROM menu_items WHERE category='Fries'")
         database.init_database(); database.init_database()
         with get_db() as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 11)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 16)
             prices = [r[0] for r in db.execute("SELECT price FROM menu_items WHERE category='Fries' ORDER BY id")]
         self.assertEqual(prices, [79, 99, 129])
 
@@ -716,9 +717,9 @@ class FinalMenu(Base):
     """The website must match the printed menu poster exactly."""
     def test_database_has_exactly_the_poster_menu(self):
         with get_db() as db:
-            got = {(r["name"], r["variant"]): r["price"] for r in db.execute("SELECT * FROM menu_items WHERE category<>'Fries'")}
+            got = {(r["name"], r["variant"]): r["price"] for r in db.execute("SELECT * FROM menu_items WHERE category NOT IN ('Fries','Combo')")}
             fries = {r["name"]: r["price"] for r in db.execute("SELECT * FROM menu_items WHERE category='Fries'")}
-            pieces = {r[0] for r in db.execute("SELECT pieces FROM menu_items WHERE category<>'Fries'")}
+            pieces = {r[0] for r in db.execute("SELECT pieces FROM menu_items WHERE category NOT IN ('Fries','Combo')")}
             dips = [(r["name"], r["price"]) for r in db.execute("SELECT * FROM dips ORDER BY id")]
         self.assertEqual(got, POSTER); self.assertEqual(fries, POSTER_FRIES); self.assertEqual(pieces, {8})
         self.assertEqual(dips, [("Cheese", 10), ("Schezwan Sauce", 10), ("Tandoori Sauce", 10), ("Peri Peri Sauce", 10)])
@@ -775,7 +776,7 @@ class FinalMenu(Base):
             self.assertNotIn(("Steam Momos", "Veg"), rows); self.assertNotIn(("Steam Momos", "Paneer"), rows)
             self.assertEqual(rows[("Fry Momos", "Veg")]["available"], 0)       # used by an order: kept but hidden
             self.assertNotIn(("Fry Momos", "Paneer"), rows)                    # never used: removed
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 12)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0], 17)
             self.assertEqual(db.execute("SELECT name FROM dips ORDER BY id").fetchone()[0], "Cheese")
             self.assertEqual(db.execute("SELECT item_name FROM order_items WHERE order_id=?", (oid,)).fetchone()[0], "Fry Momos - Veg")
             db.execute("UPDATE menu_items SET price=111 WHERE name='Paneer Momos'")
@@ -784,6 +785,223 @@ class FinalMenu(Base):
         r = self.client.post("/checkout", json={"name": "A", "phone": "9876543210", "cart": [{"item_id": fry_veg, "quantity": 1}]})
         self.assertEqual(r.status_code, 400)                                    # the old Fry item can't be ordered any more
         self.assertNotIn("Fry Momos", self.client.get("/").get_data(as_text=True))
+
+
+COMBOS_POSTER = {("Classic Crunch", "Regular"): 179, ("Fire & Crunch", "Regular"): 199, ("Cheese Overload", "Regular"): 249,
+                 ("The Ultimate Squad", "Veg"): 799, ("The Ultimate Squad", "Paneer"): 999}
+
+
+def dip_id(name):
+    with get_db() as db:
+        return db.execute("SELECT id FROM dips WHERE name=?", (name,)).fetchone()["id"]
+
+
+class Combos(Base):
+    """The Combo Menu poster."""
+    CRUNCH = {"sauce": "Schezwan Sauce"}
+    FIRE = {"momos": "Tandoori Momos", "fries": "Cheesy Fries", "sauce": "Cheese"}
+
+    def line(self, name, choices=None, variant="Regular", qty=1, **extra):
+        return {"item_id": item_id(name, variant), "quantity": qty, "choices": choices if choices is not None else {}, **extra}
+
+    _phones = 0
+
+    def order(self, *lines, phone=None):
+        if phone is None:   # a fresh customer each time (one phone may only have 5 unpaid orders at once)
+            Combos._phones += 1; phone = f"9000{Combos._phones:06d}"
+        return self.client.post("/checkout", json={"name": "A", "phone": phone, "cart": list(lines)})
+
+    def setstock(self, kind, iid, n):
+        self.assertEqual(self.admin().post(f"/admin/stock/{kind}/{iid}", data={"action": "set", "amount": str(n)}).status_code, 302)
+
+    def left(self, kind, iid):
+        with get_db() as db:
+            return db.execute(f"SELECT stock FROM {'dips' if kind == 'dip' else 'menu_items'} WHERE id=?", (iid,)).fetchone()[0]
+
+    def toggle(self, kind, iid, on):
+        with app.test_request_context():
+            url = url_for("admin_dip_toggle", dip_id=iid) if kind == "dip" else url_for("admin_menu_toggle", item_id=iid)
+        self.assertEqual(self.admin().post(url, data={"available": "1" if on else "0"}).status_code, 302)
+
+    def rows(self, oid):
+        with get_db() as db:
+            return [tuple(r) for r in db.execute("SELECT item_name,unit_price,quantity,cooking,choices FROM order_items WHERE order_id=?", (oid,))]
+
+    def tiles(self):
+        from combos import combos_for_page
+        from models import get_menu, get_dips
+        return {c["name"]: {t["item"]["variant"]: t for t in c["tiles"]} for c in combos_for_page(get_menu(True), get_dips(True))}
+
+    def test_prices_match_the_poster(self):
+        with get_db() as db:
+            got = {(r["name"], r["variant"]): r["price"] for r in db.execute("SELECT * FROM menu_items WHERE category='Combo'")}
+        self.assertEqual(got, COMBOS_POSTER)
+
+    def test_each_combo_is_priced_and_named_by_the_server(self):
+        r = self.order(self.line("Classic Crunch", self.CRUNCH, price=1)); self.assertEqual(r.status_code, 200, r.data)
+        oid = r.get_json()["order_id"]; self.assertEqual(self.row(oid)["total_amount"], 179)
+        self.assertEqual(self.rows(oid), [("Classic Crunch: Veg Momos (Fry) + Salted Fries + Schezwan Sauce", 179, 1, "Fry", '{"sauce": "Schezwan Sauce"}')])
+        oid = self.order(self.line("Fire & Crunch", self.FIRE)).get_json()["order_id"]
+        self.assertEqual((self.row(oid)["total_amount"], self.rows(oid)[0][0]), (199, "Fire & Crunch: Tandoori Momos (Fry) + Cheesy Fries + Cheese"))
+        steam = self.order(self.line("Cheese Overload", {"cooking": "Steam"})).get_json()["order_id"]
+        fry = self.order(self.line("Cheese Overload", {"cooking": "Fry"})).get_json()["order_id"]
+        self.assertEqual((self.row(steam)["total_amount"], self.row(fry)["total_amount"]), (249, 259))
+        self.assertEqual((self.rows(steam)[0][3], self.rows(fry)[0][3]), ("Steam", "Fry"))
+        self.assertEqual(self.rows(fry)[0][0], "Cheese Overload: Cheese Loaded Momos (Fry) + Cheesy Fries + Cheese")
+        veg = self.order(self.line("The Ultimate Squad", {}, "Veg")).get_json()["order_id"]
+        pan = self.order(self.line("The Ultimate Squad", {}, "Paneer", qty=2)).get_json()["order_id"]
+        self.assertEqual((self.row(veg)["total_amount"], self.row(pan)["total_amount"]), (799, 1998))
+        self.assertTrue(self.rows(pan)[0][0].startswith("The Ultimate Squad (Paneer): Peri Peri + Tandoori + Cheese Loaded Momos + Peri Peri Fries + all 4 sauces"))
+
+    def test_choices_must_be_ones_the_poster_offers(self):
+        bad = [self.line("Classic Crunch", {}), self.line("Classic Crunch", {"sauce": "Ketchup"}), self.line("Classic Crunch", {"sauce": "Cheese", "free": "yes"}),
+               self.line("Classic Crunch", "Cheese"), self.line("Classic Crunch", self.CRUNCH, fry=True),
+               self.line("Fire & Crunch", {"momos": "Tandoori Momos", "sauce": "Cheese"}), self.line("Fire & Crunch", {**self.FIRE, "momos": "Cheese Loaded Momos"}),
+               self.line("Cheese Overload", {"cooking": "Burnt"}), self.line("The Ultimate Squad", {"extra": 1}, "Veg")]
+        for b in bad: self.assertEqual(self.order(b).status_code, 400, b)
+        with get_db() as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+
+    def test_a_combo_uses_up_what_it_is_made_of_and_gives_it_back(self):
+        vm, sf, sz = item_id("Veg Momos", "Veg"), item_id("Salted Fries", "Regular"), dip_id("Schezwan Sauce")
+        self.setstock("menu", vm, 5); self.setstock("menu", sf, 5); self.setstock("dip", sz, 4)
+        oid = self.order(self.line("Classic Crunch", self.CRUNCH, qty=2)).get_json()["order_id"]
+        self.assertEqual((self.left("menu", vm), self.left("menu", sf), self.left("dip", sz)), (3, 3, 2))
+        r = self.order(self.line("Classic Crunch", self.CRUNCH, qty=4), phone="9123456780")
+        self.assertEqual(r.status_code, 400); self.assertIn("left of", r.get_json()["message"])
+        self.assertEqual((self.left("menu", vm), self.left("menu", sf), self.left("dip", sz)), (3, 3, 2))
+        self.submit(oid); self.admin().post(f"/admin/payments/{oid}/verify")
+        self.assertEqual(self.client.post(f"/order/{oid}/cancel").status_code, 200)
+        self.assertEqual((self.left("menu", vm), self.left("menu", sf), self.left("dip", sz)), (5, 5, 4))
+
+    def test_combo_is_off_when_an_ingredient_is_sold_out(self):
+        sf, pf, cheese = item_id("Salted Fries", "Regular"), item_id("Peri Peri Fries", "Regular"), dip_id("Cheese")
+        self.toggle("menu", sf, False)
+        r = self.order(self.line("Classic Crunch", self.CRUNCH)); self.assertEqual(r.status_code, 400); self.assertIn("Salted Fries", r.get_json()["message"])
+        t = self.tiles(); self.assertFalse(t["Classic Crunch"]["Regular"]["orderable"]); self.assertTrue(t["Fire & Crunch"]["Regular"]["orderable"])
+        self.assertIn("SOLD OUT", self.client.get("/").get_data(as_text=True))
+        self.toggle("menu", pf, False)                                       # one of Fire & Crunch's two fries
+        t = self.tiles()["Fire & Crunch"]["Regular"]; self.assertTrue(t["orderable"])
+        self.assertEqual({c["value"]: c["ok"] for c in t["options"][1]["choices"]}, {"Peri Peri Fries": False, "Cheesy Fries": True})
+        self.assertEqual(self.order(self.line("Fire & Crunch", {**self.FIRE, "fries": "Peri Peri Fries"})).status_code, 400)
+        self.assertEqual(self.order(self.line("Fire & Crunch", self.FIRE)).status_code, 200)
+        self.assertFalse(self.tiles()["The Ultimate Squad"]["Veg"]["orderable"])   # needs Peri Peri Fries
+        self.toggle("menu", sf, True); self.toggle("dip", cheese, False)
+        t = self.tiles(); self.assertFalse(t["Cheese Overload"]["Regular"]["orderable"])      # includes the cheese sauce
+        self.assertEqual(self.order(self.line("Classic Crunch", {"sauce": "Cheese"})).status_code, 400)
+        self.assertEqual(self.order(self.line("Classic Crunch", self.CRUNCH), phone="9123456780").status_code, 200)
+
+    def test_a_combo_can_be_switched_off_and_have_its_own_stock(self):
+        cid = item_id("Classic Crunch", "Regular"); self.toggle("menu", cid, False)
+        self.assertEqual(self.order(self.line("Classic Crunch", self.CRUNCH)).status_code, 400)
+        self.toggle("menu", cid, True); self.setstock("menu", cid, 1)
+        r = self.order(self.line("Classic Crunch", self.CRUNCH, qty=2)); self.assertEqual(r.status_code, 400); self.assertIn("Only 1 left of Classic Crunch", r.get_json()["message"])
+        self.assertEqual(self.order(self.line("Classic Crunch", self.CRUNCH)).status_code, 200); self.assertEqual(self.left("menu", cid), 0)
+
+    def test_menu_page_shows_the_combo_menu(self):
+        html = self.client.get("/").get_data(as_text=True)
+        for needle in ("COMBO MENU", "1. CLASSIC CRUNCH", "2. FIRE &amp; CRUNCH", "3. CHEESE OVERLOAD", "4. THE ULTIMATE SQUAD", "Good entry combo", "Spicy bestseller potential!", "Premium combo",
+                       "Best for sharing with your squad!", "Fried momos included (+₹10).", "Steamed or fried? Fry adds ₹10.", "Peri Peri OR Tandoori Momos (Fry + ₹10)", "Any one sauce", "All four sauces",
+                       "dish-combo-classic-crunch.jpg", "dish-combo-ultimate-squad.jpg", "Schezwan Sauce", '<dialog id="comboSheet"', 'href="#combos"'):
+            self.assertIn(needle, html)
+        for price in ("₹179", "₹199", "₹249", "₹799", "₹999"): self.assertIn(price, html)
+        self.assertEqual(html.count('class="combo-pick"'), 5); self.assertEqual(html.count('class="pick"'), 8)
+
+    def test_dashboard_counts_combos_and_fried_plates(self):
+        from app import business_date
+        from models import dashboard_stats
+        oid = self.order(self.line("Classic Crunch", self.CRUNCH, qty=2)).get_json()["order_id"]; self.submit(oid); self.admin().post(f"/admin/payments/{oid}/verify")
+        st = dashboard_stats(business_date()); self.assertEqual((st["categories"].get("Combo"), st["fried"]), (2, 2))
+
+    def test_older_database_gets_the_combos(self):
+        with get_db() as db:
+            db.execute("DELETE FROM menu_items WHERE category='Combo'"); db.execute("ALTER TABLE order_items DROP COLUMN choices")
+        database.init_database()
+        with get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM menu_items WHERE category='Combo'").fetchone()[0], 5)
+            self.assertIn("choices", [r["name"] for r in db.execute("PRAGMA table_info(order_items)")])
+        self.assertEqual(self.order(self.line("Fire & Crunch", self.FIRE)).status_code, 200)
+
+
+class AdminPhone(Base):
+    """Every admin page must work on a phone."""
+    PAGES = ["/admin", "/admin/orders", "/admin/payments", "/admin/tokens", "/admin/stock", "/admin/menu", "/admin/refunds", "/admin/reports", "/admin/settings"]
+
+    def data(self):
+        paid = self.paid_order(); gone = self.paid_order(); self.client.post(f"/order/{gone}/cancel")
+        waiting = self.place(phone="9123456780"); self.submit(waiting)
+        return paid, gone, waiting
+
+    def test_every_admin_page_renders_with_phone_navigation(self):
+        paid, gone, waiting = self.data(); adm = self.admin()
+        for path in self.PAGES + [f"/admin/orders/{paid}/history"]:
+            r = adm.get(path); html = r.get_data(as_text=True)
+            self.assertEqual(r.status_code, 200, path)
+            for needle in ('name="viewport"', "viewport-fit=cover", 'class="admin-tabs"', 'rel="manifest"', "admin.webmanifest", "apple-touch-icon"): self.assertIn(needle, html, (path, needle))
+            self.assertEqual(app.test_client().get(path).status_code, 302, path)
+        self.assertEqual(adm.get(f"/admin/orders/{paid}").status_code, 302)       # old detail page now goes to the full history
+
+    def test_login_page_is_phone_friendly_and_customer_pages_have_no_admin_bar(self):
+        html = app.test_client().get("/admin/login").get_data(as_text=True)
+        for needle in ('autocomplete="current-password"', 'autocomplete="username"', 'name="csrf_token"', 'name="viewport"', 'type="password"'): self.assertIn(needle, html)
+        self.assertNotIn("admin-tabs", html)
+        home = self.client.get("/").get_data(as_text=True); self.assertNotIn("admin-tabs", home); self.assertNotIn("admin.webmanifest", home)
+
+    def test_app_install_files_are_served(self):
+        m = self.client.get("/static/admin.webmanifest"); self.assertEqual(m.status_code, 200)
+        data = json.loads(m.get_data(as_text=True))
+        self.assertEqual((data["start_url"], data["scope"], data["display"]), ("/admin/orders", "/admin/", "standalone"))
+        for icon in data["icons"] + [{"src": "/static/icons/admin-180.png"}]: self.assertEqual(self.client.get(icon["src"]).status_code, 200, icon)
+
+    def test_waiting_payments_badge_in_the_tab_bar(self):
+        adm = self.admin(); self.assertIn('id="navBadge" hidden>', adm.get("/admin/orders").get_data(as_text=True))
+        oid = self.place(); self.submit(oid)
+        self.assertIn('id="navBadge" >1<', adm.get("/admin/orders").get_data(as_text=True))
+        self.assertIn('id="navBadge" >1<', adm.get("/admin/stock").get_data(as_text=True))
+
+    def test_menu_page_switches_items_on_and_off(self):
+        adm = self.admin(); html = adm.get("/admin/menu").get_data(as_text=True)
+        for needle in ("COMBOS", "Classic Crunch", "The Ultimate Squad · Paneer", "Peri Peri Momos · Paneer", "Veg Momos", "Salted Fries", "Schezwan Sauce", "tap to hide"): self.assertIn(needle, html)
+        self.assertNotIn("Fry Momos", html)
+        iid = item_id("Peri Peri Momos", "Veg")
+        with app.test_request_context(): url = url_for("admin_menu_toggle", item_id=iid)
+        adm.post(url, data={"available": "0"})
+        self.assertIn("SOLD OUT", adm.get("/admin/menu").get_data(as_text=True)); self.assertIn("tap to turn on", adm.get("/admin/menu").get_data(as_text=True))
+        adm.post(url, data={"available": "1"}); self.assertNotIn("tap to turn on", adm.get("/admin/menu").get_data(as_text=True))
+
+    def test_tokens_board_and_auto_refresh(self):
+        a = self.paid_order(); b = self.paid_order(); adm = self.admin()
+        for s in ("PREPARING", "READY"): adm.post(f"/admin/orders/{b}/status", data={"status": s})
+        html = adm.get("/admin/tokens").get_data(as_text=True)
+        self.assertIn("PREPARING", html); self.assertIn("READY", html); self.assertIn("autorefresh.js", html)
+        self.assertLess(html.index('class="tk cooking">SS-001'), html.index('class="tk ready">SS-002'))
+
+    def test_refunds_page_is_a_list_of_cards_with_one_tap_action(self):
+        oid = self.paid_order(); self.client.post(f"/order/{oid}/cancel"); adm = self.admin()
+        html = adm.get("/admin/refunds").get_data(as_text=True)
+        for needle in (">REFUND SENT</button>", 'href="tel:9876543210"', "₹99", "SS-001", "Refund UTR"): self.assertIn(needle, html)
+        adm.post(f"/admin/orders/{oid}/status", data={"status": "REFUNDED", "reference": "RF77"})
+        html = adm.get("/admin/refunds").get_data(as_text=True); self.assertIn("ref RF77", html); self.assertNotIn(">REFUND SENT</button>", html)
+
+    def test_dashboard_and_reports_leave_out_refunded_orders(self):
+        self.paid_order(); gone = self.paid_order(); self.client.post(f"/order/{gone}/cancel"); adm = self.admin()
+        for path in ("/admin", "/admin/reports"):
+            html = adm.get(path).get_data(as_text=True); self.assertIn("₹99", html); self.assertNotIn("₹198", html)
+        from app import business_date
+        from models import dashboard_stats
+        st = dashboard_stats(business_date()); self.assertEqual(st["revenue"], 99); self.assertEqual(st["categories"].get("Steam"), 1)
+
+    def test_settings_page_shows_rules_but_never_the_secret(self):
+        app.config["SMS_WEBHOOK_SECRET"] = "s3cr3t-do-not-show-123"
+        html = self.admin().get("/admin/settings").get_data(as_text=True)
+        for needle in ("2 min", "45 min", "steamsquad@fam", "Add to Home screen", "LOG OUT", "ON"): self.assertIn(needle, html)
+        self.assertNotIn("s3cr3t-do-not-show-123", html)
+
+    def test_wide_tables_turn_into_cards_on_a_phone(self):
+        self.paid_order()
+        html = self.admin().get("/admin/payments").get_data(as_text=True)
+        self.assertIn("tables.js", html); self.assertIn("table-wrap", html)
+        with open("static/css/style.css", encoding="utf-8") as f: css = f.read()
+        self.assertIn("table.stack", css); self.assertIn("attr(data-label)", css)
 
 
 class Tokens(Base):
