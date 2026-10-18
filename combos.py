@@ -17,6 +17,13 @@ def _dip(name):
     return ("dip", name, None)
 
 
+def _cooking_option():
+    """Steamed is the normal price; fried adds Rs 10 for the combo (same rule as the plain momos)."""
+    return {"key": "cooking", "label": "Momos steamed or fried?", "choices": [
+        {"value": "Steam", "label": "Steam · ₹0 extra", "extra": 0},
+        {"value": "Fry", "label": f"Fry · +₹{FRY_EXTRA}", "extra": FRY_EXTRA}]}
+
+
 def _sauce_option(label="Choose any one sauce"):
     return {"key": "sauce", "label": label, "choices": [{"value": s, "part": _dip(s)} for s in SAUCES]}
 
@@ -47,17 +54,16 @@ COMBO_SPECS = {
         "lines": ["Cheese Loaded Momos", "Cheesy Fries", "Cheese Sauce"], "note": "Steamed or fried? Fry adds ₹10.",
         "cooking": None,
         "fixed": lambda v: [_item("Cheese Loaded Momos", "Veg"), _item("Cheesy Fries"), _dip("Cheese")],
-        "options": [{"key": "cooking", "label": "Momos steamed or fried?", "choices": [
-            {"value": "Steam", "label": "Steam · ₹0 extra", "extra": 0}, {"value": "Fry", "label": f"Fry · +₹{FRY_EXTRA}", "extra": FRY_EXTRA}]}],
+        "options": [_cooking_option()],
         "describe": lambda v, c: f"Cheese Loaded Momos ({c['cooking']}) + Cheesy Fries + Cheese",
     },
     "The Ultimate Squad": {
         "badge": "Best for sharing with your squad!", "tone": "gold", "image": "combo-ultimate-squad",
-        "lines": ["Peri Peri Momos + Tandoori Momos + Cheese Loaded Momos", "Peri Peri Fries", "All four sauces"], "note": "",
+        "lines": ["Peri Peri Momos + Tandoori Momos + Cheese Loaded Momos", "Peri Peri Fries", "All four sauces"], "note": f"Steamed or fried? Fry adds ₹{FRY_EXTRA} for the whole combo.",
         "cooking": None,
         "fixed": lambda v: [_item("Peri Peri Momos", v), _item("Tandoori Momos", v), _item("Cheese Loaded Momos", v), _item("Peri Peri Fries")] + [_dip(s) for s in SAUCES],
-        "options": [],
-        "describe": lambda v, c: "Peri Peri + Tandoori + Cheese Loaded Momos + Peri Peri Fries + all 4 sauces",
+        "options": [_cooking_option()],
+        "describe": lambda v, c: f"Peri Peri + Tandoori + Cheese Loaded Momos ({c['cooking']}) + Peri Peri Fries + all 4 sauces",
     },
 }
 

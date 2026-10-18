@@ -47,6 +47,7 @@ const cextra=()=>copts.reduce((s,g)=>{const c=g.choices.find(x=>x.value===cpick[
 function paintCombo(){
  const d=ccur.dataset, unit=+d.price+cextra(), ready=copts.every(g=>cpick[g.key]);
  document.getElementById("comboTitle").textContent=d.name+(d.variant!=="Regular"?` · ${d.variant}`:"");
+ document.getElementById("comboNote").textContent=d.note||"";
  document.getElementById("comboGroups").innerHTML=copts.map(g=>`<div class="grp"><p class="grp-label">${escHtml(g.label)}</p><div class="choices">${g.choices.map(c=>`<button type="button" class="choice${cpick[g.key]===c.value?" on":""}" data-g="${escHtml(g.key)}" data-v="${escHtml(c.value)}"${c.ok?"":" disabled"}>${escHtml(c.label)}${c.ok?"":" (sold out)"}</button>`).join("")}</div></div>`).join("");
  document.getElementById("comboQty").textContent=cqty;
  const add=document.getElementById("comboAdd"); add.disabled=!ready; add.textContent=ready?`ADD TO CART · ₹${unit*cqty}`:"CHOOSE YOUR OPTIONS";

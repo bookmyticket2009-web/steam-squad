@@ -26,7 +26,7 @@
     <h3>{{ loop.index }}. {{ c.name.upper() }}</h3>
     <ul class="combo-lines">{% for l in sp.lines %}<li>{{ l }}</li>{% endfor %}</ul>
     {% if sp.note %}<p class="muted small">{{ sp.note }}</p>{% endif %}
-    <div class="combo-tiles">{% for t in c.tiles %}<button type="button" class="combo-pick" {% if not t.orderable %}disabled{% endif %} data-item-id="{{ t.item.id }}" data-name="{{ c.name }}" data-variant="{{ t.item.variant }}" data-price="{{ t.item.price }}" data-left="{{ t.item.stock if t.item.stock is not none else '' }}" data-options='{{ t.options|tojson }}'>
+    <div class="combo-tiles">{% for t in c.tiles %}<button type="button" class="combo-pick" {% if not t.orderable %}disabled{% endif %} data-item-id="{{ t.item.id }}" data-name="{{ c.name }}" data-variant="{{ t.item.variant }}" data-price="{{ t.item.price }}" data-left="{{ t.item.stock if t.item.stock is not none else '' }}" data-note="{{ sp.note }}" data-options='{{ t.options|tojson }}'>
       <span class="cnt" hidden></span>
       {% if t.item.variant != 'Regular' %}<span class="t"><svg class="v {{ t.item.variant|lower }}" aria-hidden="true"><use href="#i-{{ 'leaf' if t.item.variant == 'Veg' else 'paneer' }}"/></svg>{{ t.item.variant|upper }}</span>{% endif %}
       {% if t.orderable %}<b>₹{{ t.item.price }}</b><small>{{ 'CHOOSE & ADD' if t.options else 'TAP TO ADD' }}</small>{% else %}<small>SOLD OUT</small>{% endif %}
@@ -65,6 +65,7 @@
 <dialog id="comboSheet" class="sheet" aria-labelledby="comboTitle"><div class="sheet-in">
   <button type="button" class="sheet-x" data-close aria-label="Close">×</button>
   <h3 id="comboTitle"></h3>
+  <p class="muted small" id="comboNote"></p>
   <div id="comboGroups"></div>
   <div class="step"><button type="button" data-q="-1" aria-label="Fewer">−</button><b id="comboQty">1</b><button type="button" data-q="1" aria-label="More">+</button></div>
   <button type="button" class="btn primary full" id="comboAdd"></button>
