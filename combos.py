@@ -17,9 +17,15 @@ def _dip(name):
     return ("dip", name, None)
 
 
-def _cooking_option():
-    """Steamed is the normal price; fried adds Rs 10 for the combo (same rule as the plain momos)."""
-    return {"key": "cooking", "label": "Momos steamed or fried?", "choices": [
+def _cooking_option(fried_in_price=False):
+    """Every combo: fried costs Rs 10 more than steamed.
+    Combos 1 and 2 are printed with fried momos INCLUDED, so their printed price is the fried price and steamed is Rs 10 less.
+    The others are printed at the steamed price and fried adds Rs 10."""
+    if fried_in_price:
+        return {"key": "cooking", "label": "Momos steamed or fried?", "default": "Fry", "assume": "Fry", "choices": [
+            {"value": "Steam", "label": f"Steam · ₹{FRY_EXTRA} less", "extra": -FRY_EXTRA},
+            {"value": "Fry", "label": "Fry · included", "extra": 0}]}
+    return {"key": "cooking", "label": "Momos steamed or fried?", "default": "Steam", "choices": [
         {"value": "Steam", "label": "Steam · ₹0 extra", "extra": 0},
         {"value": "Fry", "label": f"Fry · +₹{FRY_EXTRA}", "extra": FRY_EXTRA}]}
 
@@ -31,23 +37,24 @@ def _sauce_option(label="Choose any one sauce"):
 COMBO_SPECS = {
     "Classic Crunch": {
         "badge": "Good entry combo", "tone": "green", "image": "combo-classic-crunch",
-        "lines": ["Veg Momos (Fry + ₹10)", "Salted Fries", "Any one sauce"], "note": "Fried momos included (+₹10).",
-        "cooking": "Fry",
+        "lines": ["Veg Momos (Fry + ₹10)", "Salted Fries", "Any one sauce"], "note": f"Fried momos included (+₹{FRY_EXTRA}). Steamed is ₹{FRY_EXTRA} less.",
+        "cooking": None,
         "fixed": lambda v: [_item("Veg Momos", "Veg"), _item("Salted Fries")],
-        "options": [_sauce_option()],
-        "describe": lambda v, c: f"Veg Momos (Fry) + Salted Fries + {c['sauce']}",
+        "options": [_sauce_option(), _cooking_option(fried_in_price=True)],
+        "describe": lambda v, c: f"Veg Momos ({c['cooking']}) + Salted Fries + {c['sauce']}",
     },
     "Fire & Crunch": {
         "badge": "Spicy bestseller potential!", "tone": "red", "image": "combo-fire-and-crunch",
-        "lines": ["Peri Peri OR Tandoori Momos (Fry + ₹10)", "Peri Peri Fries OR Cheesy Fries", "Any one sauce"], "note": "Fried momos included (+₹10).",
-        "cooking": "Fry",
+        "lines": ["Peri Peri OR Tandoori Momos (Fry + ₹10)", "Peri Peri Fries OR Cheesy Fries", "Any one sauce"], "note": f"Fried momos included (+₹{FRY_EXTRA}). Steamed is ₹{FRY_EXTRA} less.",
+        "cooking": None,
         "fixed": lambda v: [],
         "options": [
-            {"key": "momos", "label": "Choose your momos (fried)", "choices": [{"value": n, "part": _item(n, "Veg")} for n in ("Peri Peri Momos", "Tandoori Momos")]},
+            {"key": "momos", "label": "Choose your momos", "choices": [{"value": n, "part": _item(n, "Veg")} for n in ("Peri Peri Momos", "Tandoori Momos")]},
             {"key": "fries", "label": "Choose your fries", "choices": [{"value": n, "part": _item(n)} for n in ("Peri Peri Fries", "Cheesy Fries")]},
             _sauce_option(),
+            _cooking_option(fried_in_price=True),
         ],
-        "describe": lambda v, c: f"{c['momos']} (Fry) + {c['fries']} + {c['sauce']}",
+        "describe": lambda v, c: f"{c['momos']} ({c['cooking']}) + {c['fries']} + {c['sauce']}",
     },
     "Cheese Overload": {
         "badge": "Premium combo", "tone": "purple", "image": "combo-cheese-overload",
@@ -75,9 +82,10 @@ def validate_combo_choices(spec, raw):
         raise ValueError("Invalid combo choices.")
     out = {}
     for opt in spec["options"]:
-        if raw.get(opt["key"]) not in [c["value"] for c in opt["choices"]]:
+        value = raw.get(opt["key"], opt.get("assume"))   # "assume": carts saved before steam/fry existed keep their fried price
+        if value not in [c["value"] for c in opt["choices"]]:
             raise ValueError(f"Please choose: {opt['label']}.")
-        out[opt["key"]] = raw[opt["key"]]
+        out[opt["key"]] = value
     return out
 
 
@@ -118,7 +126,7 @@ def combos_for_page(menu, dips):
             choices = [{"value": c["value"], "label": c.get("label", c["value"]), "extra": c.get("extra", 0), "ok": ok(c["part"]) if c.get("part") else True}
                        for c in opt["choices"]]
             usable = usable and any(c["ok"] for c in choices)
-            options.append({"key": opt["key"], "label": opt["label"], "choices": choices})
+            options.append({"key": opt["key"], "label": opt["label"], "default": opt.get("default"), "choices": choices})
         card = cards.setdefault(m["name"], {"name": m["name"], "spec": spec, "tiles": []})
         card["tiles"].append({"item": m, "options": options, "orderable": bool(m["orderable"] and usable)})
     return [cards[n] for n in COMBO_SPECS if n in cards]

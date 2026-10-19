@@ -58,7 +58,7 @@ function comboClick(e){
   const left=pk.dataset.left===""?Infinity:+pk.dataset.left, have=getCart().filter(x=>x.item_id===+pk.dataset.itemId).reduce((s,x)=>s+x.quantity,0);
   croom=Math.min(50,left-have); if(croom<=0){toast(`Only ${left} left, and they're all in your cart`);return true}
   ccur=pk; copts=JSON.parse(pk.dataset.options||"[]"); cqty=1; cpick={};
-  copts.forEach(g=>{if(g.key==="cooking"){const f=g.choices.find(c=>c.ok);if(f)cpick[g.key]=f.value}});   // steamed unless they pick fry
+  copts.forEach(g=>{if(g.default){const f=g.choices.find(c=>c.value===g.default&&c.ok)||g.choices.find(c=>c.ok);if(f)cpick[g.key]=f.value}});   // start on the normal choice: fried where it is in the price, else steamed
   paintCombo(); csheet.showModal(); return true;
  }
  if(!csheet||!(e.target===csheet||csheet.contains(e.target)))return false;
