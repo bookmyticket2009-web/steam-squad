@@ -1,6 +1,6 @@
 window.CSRF = document.querySelector('meta[name="csrf-token"]')?.content || "";
-function getCart(){ try{return JSON.parse(localStorage.getItem("steam_cart2")||"[]")}catch(e){return[]}}
-function saveCart(c){localStorage.setItem("steam_cart2",JSON.stringify(c)); updateCartCount();}
+function getCart(){ try{return JSON.parse(localStorage.getItem("steam_cart3")||"[]")}catch(e){return[]}}
+function saveCart(c){localStorage.setItem("steam_cart3",JSON.stringify(c)); updateCartCount();}
 function updateCartCount(){
  const c=getCart(), n=c.reduce((s,x)=>s+Number(x.quantity||0),0), t=c.reduce((s,x)=>s+Number(x.quantity||0)*Number(x.price||0),0);
  const el=document.getElementById("cartCount");if(el)el.textContent=n;

@@ -10,6 +10,6 @@ form.addEventListener("submit",async e=>{
  try{
   const r=await fetch("/checkout",{method:"POST",headers:{"Content-Type":"application/json","X-CSRFToken":window.CSRF},body:JSON.stringify(data)}); const d=await r.json();
   if(!d.ok){msg.textContent=d.message;btn.disabled=false;return}
-  localStorage.removeItem("steam_cart2"); location=d.redirect;
+  localStorage.removeItem("steam_cart3"); location=d.redirect;
  }catch(_){msg.textContent="Network problem. Please try again.";btn.disabled=false}
 });

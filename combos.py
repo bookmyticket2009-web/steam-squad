@@ -17,14 +17,8 @@ def _dip(name):
     return ("dip", name, None)
 
 
-def _cooking_option(fried_in_price=False):
-    """Every combo: fried costs Rs 10 more than steamed.
-    Combos 1 and 2 are printed with fried momos INCLUDED, so their printed price is the fried price and steamed is Rs 10 less.
-    The others are printed at the steamed price and fried adds Rs 10."""
-    if fried_in_price:
-        return {"key": "cooking", "label": "Momos steamed or fried?", "default": "Fry", "assume": "Fry", "choices": [
-            {"value": "Steam", "label": f"Steam · ₹{FRY_EXTRA} less", "extra": -FRY_EXTRA},
-            {"value": "Fry", "label": "Fry · included", "extra": 0}]}
+def _cooking_option():
+    """Every combo: the printed price includes STEAMED momos. Choosing fry adds Rs 10 (same rule as the plain momos)."""
     return {"key": "cooking", "label": "Momos steamed or fried?", "default": "Steam", "choices": [
         {"value": "Steam", "label": "Steam · ₹0 extra", "extra": 0},
         {"value": "Fry", "label": f"Fry · +₹{FRY_EXTRA}", "extra": FRY_EXTRA}]}
@@ -37,22 +31,22 @@ def _sauce_option(label="Choose any one sauce"):
 COMBO_SPECS = {
     "Classic Crunch": {
         "badge": "Good entry combo", "tone": "green", "image": "combo-classic-crunch",
-        "lines": ["Veg Momos (Fry + ₹10)", "Salted Fries", "Any one sauce"], "note": f"Fried momos included (+₹{FRY_EXTRA}). Steamed is ₹{FRY_EXTRA} less.",
+        "lines": ["Veg Momos (steamed · fry +₹10)", "Salted Fries", "Any one sauce"], "note": f"Steamed momos included. Fry adds ₹{FRY_EXTRA}.",
         "cooking": None,
         "fixed": lambda v: [_item("Veg Momos", "Veg"), _item("Salted Fries")],
-        "options": [_sauce_option(), _cooking_option(fried_in_price=True)],
+        "options": [_sauce_option(), _cooking_option()],
         "describe": lambda v, c: f"Veg Momos ({c['cooking']}) + Salted Fries + {c['sauce']}",
     },
     "Fire & Crunch": {
         "badge": "Spicy bestseller potential!", "tone": "red", "image": "combo-fire-and-crunch",
-        "lines": ["Peri Peri OR Tandoori Momos (Fry + ₹10)", "Peri Peri Fries OR Cheesy Fries", "Any one sauce"], "note": f"Fried momos included (+₹{FRY_EXTRA}). Steamed is ₹{FRY_EXTRA} less.",
+        "lines": ["Peri Peri OR Tandoori Momos (steamed · fry +₹10)", "Peri Peri Fries OR Cheesy Fries", "Any one sauce"], "note": f"Steamed momos included. Fry adds ₹{FRY_EXTRA}.",
         "cooking": None,
         "fixed": lambda v: [],
         "options": [
             {"key": "momos", "label": "Choose your momos", "choices": [{"value": n, "part": _item(n, "Veg")} for n in ("Peri Peri Momos", "Tandoori Momos")]},
             {"key": "fries", "label": "Choose your fries", "choices": [{"value": n, "part": _item(n)} for n in ("Peri Peri Fries", "Cheesy Fries")]},
             _sauce_option(),
-            _cooking_option(fried_in_price=True),
+            _cooking_option(),
         ],
         "describe": lambda v, c: f"{c['momos']} ({c['cooking']}) + {c['fries']} + {c['sauce']}",
     },
@@ -82,10 +76,9 @@ def validate_combo_choices(spec, raw):
         raise ValueError("Invalid combo choices.")
     out = {}
     for opt in spec["options"]:
-        value = raw.get(opt["key"], opt.get("assume"))   # "assume": carts saved before steam/fry existed keep their fried price
-        if value not in [c["value"] for c in opt["choices"]]:
+        if raw.get(opt["key"]) not in [c["value"] for c in opt["choices"]]:
             raise ValueError(f"Please choose: {opt['label']}.")
-        out[opt["key"]] = value
+        out[opt["key"]] = raw[opt["key"]]
     return out
 
 
