@@ -246,7 +246,7 @@ def _upgrade_to_final_menu(db):
     if db.execute("SELECT 1 FROM app_meta WHERE key='final_menu_v1'").fetchone():
         return
     db.execute("UPDATE menu_items SET name='Veg Momos' WHERE name='Steam Momos' AND variant='Veg'")
-    db.execute("UPDATE menu_items SET name='Paneer Momos', price=109 WHERE name='Steam Momos' AND variant='Paneer'")
+    db.execute("UPDATE menu_items SET name='Paneer Momos', price=99 WHERE name='Steam Momos' AND variant='Paneer'")
     db.execute("""DELETE FROM menu_items WHERE category='Fry'
                   AND id NOT IN (SELECT menu_item_id FROM order_items WHERE menu_item_id IS NOT NULL)
                   AND id NOT IN (SELECT item_id FROM stock_log WHERE kind='menu')""")
@@ -277,6 +277,39 @@ def init_database():
         db.executemany(
             "INSERT OR IGNORE INTO menu_items(name,category,variant,pieces,price) VALUES (?,?,?,?,?)", MENU + FRIES + COMBOS
         )
+                # Update existing menu prices without affecting stock or order history.
+        if not db.execute(
+            "SELECT 1 FROM app_meta WHERE key='prices_v2'"
+        ).fetchone():
+
+            prices = [
+                ("Veg Momos", "Veg", 79),
+                ("Paneer Momos", "Paneer", 99),
+                ("Peri Peri Momos", "Veg", 109),
+                ("Peri Peri Momos", "Paneer", 109),
+                ("Tandoori Momos", "Veg", 109),
+                ("Tandoori Momos", "Paneer", 129),
+                ("Cheese Loaded Momos", "Veg", 119),
+                ("Cheese Loaded Momos", "Paneer", 139),
+                ("Classic Crunch", "Regular", 159),
+                ("Fire & Crunch", "Regular", 179),
+                ("Cheese Overload", "Regular", 229),
+            ]
+
+            for name, variant, price in prices:
+                db.execute(
+                    "UPDATE menu_items SET price=? WHERE name=? AND variant=?",
+                    (price, name, variant)
+                )
+
+            db.execute(
+                "UPDATE menu_items SET available=0 WHERE name='The Ultimate Squad'"
+            )
+
+            db.execute(
+                "INSERT INTO app_meta(key,value) VALUES('prices_v2',?)",
+                (utcnow(),)
+            )
         if db.execute("SELECT COUNT(*) FROM dips").fetchone()[0] == 0:
             db.executemany("INSERT INTO dips(name,price) VALUES (?,?)", DIPS)
         db.commit()
