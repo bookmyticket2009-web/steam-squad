@@ -1,4 +1,4 @@
-"""The three combos from the Combo Menu.
+"""The four combos from the Combo Menu poster.
 
 Prices and on/off switches live in the database (menu_items, category "Combo"), so you can switch a combo
 off or track its stock like any other item. What a combo CONTAINS and which choices a customer may make is
@@ -29,7 +29,7 @@ def _sauce_option(label="Choose any one sauce"):
 
 
 COMBO_SPECS = {
-    "Combo 1": {
+    "Classic Crunch": {
         "badge": "Good entry combo", "tone": "green", "image": "combo-classic-crunch",
         "lines": ["Veg Momos (steamed · fry +₹10)", "Salted Fries", "Any one sauce"], "note": f"Steamed momos included. Fry adds ₹{FRY_EXTRA}.",
         "cooking": None,
@@ -37,7 +37,7 @@ COMBO_SPECS = {
         "options": [_sauce_option(), _cooking_option()],
         "describe": lambda v, c: f"Veg Momos ({c['cooking']}) + Salted Fries + {c['sauce']}",
     },
-    "Combo 2": {
+    "Fire & Crunch": {
         "badge": "Spicy bestseller potential!", "tone": "red", "image": "combo-fire-and-crunch",
         "lines": ["Peri Peri OR Tandoori Momos (steamed · fry +₹10)", "Peri Peri Fries OR Cheesy Fries", "Any one sauce"], "note": f"Steamed momos included. Fry adds ₹{FRY_EXTRA}.",
         "cooking": None,
@@ -50,7 +50,7 @@ COMBO_SPECS = {
         ],
         "describe": lambda v, c: f"{c['momos']} ({c['cooking']}) + {c['fries']} + {c['sauce']}",
     },
-    "Combo 3": {
+    "Cheese Overload": {
         "badge": "Premium combo", "tone": "purple", "image": "combo-cheese-overload",
         "lines": ["Cheese Loaded Momos", "Cheesy Fries", "Cheese Sauce"], "note": "Steamed or fried? Fry adds ₹10.",
         "cooking": None,
@@ -58,7 +58,14 @@ COMBO_SPECS = {
         "options": [_cooking_option()],
         "describe": lambda v, c: f"Cheese Loaded Momos ({c['cooking']}) + Cheesy Fries + Cheese",
     },
-
+    "The Ultimate Squad": {
+        "badge": "Best for sharing with your squad!", "tone": "gold", "image": "combo-ultimate-squad",
+        "lines": ["Peri Peri Momos + Tandoori Momos + Cheese Loaded Momos", "Peri Peri Fries", "All four sauces"], "note": f"Steamed or fried? Fry adds ₹{FRY_EXTRA} for the whole combo.",
+        "cooking": None,
+        "fixed": lambda v: [_item("Peri Peri Momos", v), _item("Tandoori Momos", v), _item("Cheese Loaded Momos", v), _item("Peri Peri Fries")] + [_dip(s) for s in SAUCES],
+        "options": [_cooking_option()],
+        "describe": lambda v, c: f"Peri Peri + Tandoori + Cheese Loaded Momos ({c['cooking']}) + Peri Peri Fries + all 4 sauces",
+    },
 }
 
 
