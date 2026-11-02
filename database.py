@@ -170,14 +170,14 @@ CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 """
 
 MENU = [   # the final printed menu: 8 pcs per plate, +Rs 10 for fry on every momo type
-    ("Veg Momos", "Steam", "Veg", 8, 99),
-    ("Paneer Momos", "Steam", "Paneer", 8, 109),
-    ("Peri Peri Momos", "Peri Peri", "Veg", 8, 119),
-    ("Peri Peri Momos", "Peri Peri", "Paneer", 8, 149),
-    ("Tandoori Momos", "Tandoori", "Veg", 8, 119),
-    ("Tandoori Momos", "Tandoori", "Paneer", 8, 149),
-    ("Cheese Loaded Momos", "Cheese Loaded", "Veg", 8, 129),
-    ("Cheese Loaded Momos", "Cheese Loaded", "Paneer", 8, 159),
+    ("Veg Momos", "Steam", "Veg", 8, 79),
+    ("Paneer Momos", "Steam", "Paneer", 8, 99),
+    ("Peri Peri Momos", "Peri Peri", "Veg", 8, 109),
+    ("Peri Peri Momos", "Peri Peri", "Paneer", 8, 129),
+    ("Tandoori Momos", "Tandoori", "Veg", 8, 109),
+    ("Tandoori Momos", "Tandoori", "Paneer", 8, 129),
+    ("Cheese Loaded Momos", "Cheese Loaded", "Veg", 8, 119),
+    ("Cheese Loaded Momos", "Cheese Loaded", "Paneer", 8, 139),
 ]
 DIPS = [("Cheese", 10), ("Schezwan Sauce", 10), ("Tandoori Sauce", 10), ("Peri Peri Sauce", 10)]
 
@@ -231,11 +231,9 @@ def record(db, order_id, action, actor, details="", old=None, new=None, ip=None,
                    (order_id, old, new, now, actor, ip, note or action))
 
 COMBOS = [   # Combo Menu poster. Veg/Paneer only matters for The Ultimate Squad
-    ("Classic Crunch", "Combo", "Regular", 0, 179),
-    ("Fire & Crunch", "Combo", "Regular", 0, 199),
-    ("Cheese Overload", "Combo", "Regular", 0, 249),
-    ("The Ultimate Squad", "Combo", "Veg", 0, 799),
-    ("The Ultimate Squad", "Combo", "Paneer", 0, 999),
+    ("Classic Crunch", "Combo", "Regular", 0, 159),
+    ("Fire & Crunch", "Combo", "Regular", 0, 179),
+    ("Cheese Overload", "Combo", "Regular", 0, 229)
 ]
 
 def utcnow():
