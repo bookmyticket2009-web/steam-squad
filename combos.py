@@ -57,15 +57,7 @@ COMBO_SPECS = {
         "fixed": lambda v: [_item("Cheese Loaded Momos", "Veg"), _item("Cheesy Fries"), _dip("Cheese")],
         "options": [_cooking_option()],
         "describe": lambda v, c: f"Cheese Loaded Momos ({c['cooking']}) + Cheesy Fries + Cheese",
-    },
-    "The Ultimate Squad": {
-        "badge": "Best for sharing with your squad!", "tone": "gold", "image": "combo-ultimate-squad",
-        "lines": ["Peri Peri Momos + Tandoori Momos + Cheese Loaded Momos", "Peri Peri Fries", "All four sauces"], "note": f"Steamed or fried? Fry adds ₹{FRY_EXTRA} for the whole combo.",
-        "cooking": None,
-        "fixed": lambda v: [_item("Peri Peri Momos", v), _item("Tandoori Momos", v), _item("Cheese Loaded Momos", v), _item("Peri Peri Fries")] + [_dip(s) for s in SAUCES],
-        "options": [_cooking_option()],
-        "describe": lambda v, c: f"Peri Peri + Tandoori + Cheese Loaded Momos ({c['cooking']}) + Peri Peri Fries + all 4 sauces",
-    },
+    }
 }
 
 
